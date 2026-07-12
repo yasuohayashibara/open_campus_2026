@@ -6,7 +6,7 @@ class RealTrainer {
     this.outputSize = 2;
     this.weightCount = 56;
     this.parameterCount = 66;
-    this.populationSize = 24;
+    this.populationSize = 96;
     this.goal = { x: 825, y: 90 };
     this.seed = 2026;
     this.generation = 0;
@@ -31,7 +31,7 @@ class RealTrainer {
     const n = this.parameterCount;
     const weights = parent
       ? parent.weights.map(value => value + this.gaussian() * sigma)
-      : Array.from({ length: n }, () => this.gaussian() * 0.55);
+      : Array.from({ length: n }, () => this.gaussian() * (0.18 + this.rewards.speed / 145));
     return { weights, fitness: 0 };
   }
 
@@ -53,6 +53,7 @@ class RealTrainer {
     this.agents = this.population.map((brain, index) => ({
       brain, index, x: 65, y: 390, angle: -0.35 + (this.random() - 0.5) * 0.8,
       reward: 0, alive: true, reached: false, path: [{ x: 65, y: 390 }],
+      leftSpeed: 0, rightSpeed: 0, forward: 0, turnGrip: 1, brakingDistance: 0,
       previousDistance: Math.hypot(this.goal.x - 65, this.goal.y - 390)
     }));
   }
@@ -105,18 +106,29 @@ class RealTrainer {
   stepAgent(agent, dt) {
     if (!agent.alive) return;
     const [leftRaw, rightRaw] = this.infer(agent.brain, this.inputs(agent));
-    const speedScale = 80 + this.rewards.speed * 0.8;
-    const left = leftRaw * speedScale;
-    const right = rightRaw * speedScale;
+    const speedScale = 135;
+    const targetLeft = leftRaw * speedScale;
+    const targetRight = rightRaw * speedScale;
+    const acceleration = 4.2;
+    agent.leftSpeed += Math.max(-acceleration, Math.min(acceleration, targetLeft - agent.leftSpeed));
+    agent.rightSpeed += Math.max(-acceleration, Math.min(acceleration, targetRight - agent.rightSpeed));
+    const left = agent.leftSpeed;
+    const right = agent.rightSpeed;
     const forward = (left + right) * 0.5;
-    agent.angle += (right - left) * 0.012 * dt;
+    const turnGrip = Math.max(0.24, 1 - Math.abs(forward) / 205);
+    agent.forward = forward;
+    agent.turnGrip = turnGrip;
+    agent.brakingDistance = forward * forward / 480;
+    agent.angle += (right - left) * 0.014 * turnGrip * dt;
     agent.x += Math.cos(agent.angle) * forward * dt;
     agent.y += Math.sin(agent.angle) * forward * dt;
 
     const distance = Math.hypot(this.goal.x - agent.x, this.goal.y - agent.y);
     const progress = agent.previousDistance - distance;
-    agent.reward += progress * (0.25 + this.rewards.goal / 55);
-    agent.reward += Math.max(0, forward) * dt * this.rewards.speed / 900;
+    agent.reward += progress * (0.18 + this.rewards.safety / 32);
+    agent.reward += Math.sqrt(Math.max(0, forward)) * dt * 0.12;
+    agent.reward -= (left * left + right * right) * dt * 0.000022;
+    agent.reward -= Math.abs(right - left) * Math.abs(forward) * dt * 0.00012;
     agent.previousDistance = distance;
 
     let nearest = Infinity;
@@ -129,9 +141,12 @@ class RealTrainer {
         agent.crashed = true;
       }
     }
-    if (nearest < 70) agent.reward -= (70 - nearest) * dt * this.rewards.safety / 75;
+    const effectiveClearance = nearest - agent.brakingDistance;
+    if (effectiveClearance < 80) {
+      agent.reward -= (80 - effectiveClearance) * dt * this.rewards.crash / 180;
+    }
     if (distance < 30) {
-      agent.reward += 100 + this.rewards.goal * 2;
+      agent.reward += 100 + this.rewards.goal * 2 + (300 - this.steps) * 0.32;
       agent.alive = false;
       agent.reached = true;
     }
@@ -146,7 +161,7 @@ class RealTrainer {
     for (let iteration = 0; iteration < iterations; iteration++) {
       this.steps++;
       for (const agent of this.agents) this.stepAgent(agent, 1 / 30);
-      if (this.steps >= 210 || this.agents.every(agent => !agent.alive)) this.evolve();
+      if (this.steps >= 300 || this.agents.every(agent => !agent.alive)) this.evolve();
     }
   }
 
@@ -163,8 +178,9 @@ class RealTrainer {
     if (!this.bestEver || this.population[0].fitness > this.bestEver.fitness) {
       this.bestEver = { weights: [...this.population[0].weights], fitness: this.population[0].fitness };
     }
-    const elites = this.population.slice(0, 4);
-    const sigma = Math.max(0.055, 0.42 * Math.pow(0.982, this.generation));
+    const elites = this.population.slice(0, 8);
+    const exploration = 0.18 + this.rewards.speed / 82;
+    const sigma = Math.max(0.025, exploration * Math.pow(0.982, this.generation));
     const next = elites.map(elite => ({ weights: [...elite.weights], fitness: 0 }));
     while (next.length < this.populationSize) {
       next.push(this.makeBrain(elites[Math.floor(this.random() * elites.length)], sigma));

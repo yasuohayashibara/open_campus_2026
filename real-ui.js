@@ -1,6 +1,7 @@
 /* Connects the real evolutionary trainer to the existing workshop UI. */
 const realTrainer = new RealTrainer();
 let realLast = 0;
+let realDuration = 15;
 
 function drawRealNetwork(brain) {
   const canvas = $('#network');
@@ -98,13 +99,13 @@ function drawTrainingWorld() {
     const features = realTrainer.inputs(best);
     const motors = realTrainer.infer(best.brain, features);
     ctx.fillStyle = '#07141fdd';
-    ctx.fillRect(42, 35, 260, 96);
+    ctx.fillRect(42, 35, 260, 110);
     ctx.strokeStyle = '#29485a';
-    ctx.strokeRect(42, 35, 260, 96);
+    ctx.strokeRect(42, 35, 260, 110);
     ctx.fillStyle = '#6f899b';
     ctx.font = '8px Inter,sans-serif';
     ctx.textAlign = 'left';
-    ctx.fillText(`GENERATION ${realTrainer.generation} · 24 ROBOTS`, 57, 53);
+    ctx.fillText(`GENERATION ${realTrainer.generation} · ${realTrainer.populationSize} ROBOTS`, 57, 53);
     ctx.fillStyle = '#e9f8ff';
     ctx.font = 'bold 12px sans-serif';
     ctx.fillText(best.reached ? 'ゴール方策を発見！' : '実報酬から重みを更新中…', 57, 74);
@@ -117,23 +118,28 @@ function drawTrainingWorld() {
     ctx.fillText(`MOTOR L ${motors[0].toFixed(2)}`, 57, 113);
     ctx.fillStyle = '#49f2a5';
     ctx.fillText(`MOTOR R ${motors[1].toFixed(2)}`, 155, 113);
+    ctx.fillStyle = "#ffd166";
+    ctx.fillText(`MUTATION ${(0.18 + S.speed / 82).toFixed(2)}`, 57, 132);
+    ctx.fillStyle = best.turnGrip < 0.5 ? "#ff5475" : "#49f2a5";
+    ctx.fillText(`APPROACH ×${(0.18 + S.safety / 32).toFixed(1)}`, 155, 132);
   }
   drawRealNetwork(realTrainer.bestEver || (best && best.brain));
 }
 
 function updateRealMetrics() {
-  const elapsedRatio = Math.min(1, S.elapsed / 15);
+  const elapsedRatio = Math.min(1, S.elapsed / realDuration);
   const success = realTrainer.successRate();
-  const intelligence = Math.min(1, realTrainer.generation / 70 * 0.55 + success / 100 * 0.45);
+  const intelligence = Math.min(1, realTrainer.generation / 18 * 0.55 + success / 100 * 0.45);
   const level = Math.min(5, Math.floor(intelligence * 6));
   const stages = ['重みをランダム生成', '報酬を比較中', '接近行動を獲得', '衝突回避を獲得', '経路を最適化', '方策が完成！'];
-  $('#count').textContent = Math.max(0, 15 - S.elapsed).toFixed(1);
+  $('#count').textContent = Math.max(0, realDuration - S.elapsed).toFixed(1);
   $('#trials').textContent = realTrainer.evaluations.toLocaleString();
   $('#success').textContent = `${success}%`;
   $('#crashes').textContent = realTrainer.crashes.toLocaleString();
   $('#ring').style.background = `conic-gradient(var(--cyan) ${elapsedRatio * 100}%,#1b3243 0)`;
   $('#reward').textContent = realTrainer.bestEver ? Math.round(realTrainer.bestEver.fitness) : '0';
-  $('#log').textContent = `世代 ${realTrainer.generation}：上位4個体を選択し重みを突然変異`;
+  const hint = S.speed > 85 ? "探索過多：良い方策が定着しにくい" : S.speed < 20 ? "探索不足：局所解から抜けにくい" : (S.safety > 85 && S.goal < 55) ? "接近報酬過多：近づくだけで満足する可能性" : S.goal < 35 ? "ゴール報酬不足：最後まで到達する理由が弱い" : S.crash > 90 ? "衝突罰過多：動かない方策に注意" : "探索・接近・到達・衝突罰のバランスを評価中";
+  $("#log").textContent = `世代 ${realTrainer.generation}：${hint}`;
   $('#intelLevel').textContent = level;
   $('#intelBar').style.width = `${intelligence * 100}%`;
   $('#intelStage').textContent = stages[level];
@@ -146,14 +152,15 @@ function realFrame(now) {
   const dt = Math.min(0.05, (now - realLast) / 1000);
   realLast = now;
   if (!S.paused) {
-    S.elapsed = Math.min(15, S.elapsed + dt);
-    realTrainer.step(24);
+    S.elapsed = Math.min(realDuration, S.elapsed + dt);
+    realTrainer.step(6);
   }
   drawTrainingWorld();
   updateRealMetrics();
-  if (S.elapsed >= 15) {
+  if (S.elapsed >= realDuration) {
     window.trainedPolicy = realTrainer.bestEver;
     $('#transfer').classList.remove('hidden');
+    $('#continueTrain').classList.remove('hidden');
     S.step = 3;
     toast(`実学習完了：${realTrainer.evaluations.toLocaleString()}個体を評価`);
     return;
@@ -164,9 +171,11 @@ function realFrame(now) {
 function startRealTraining() {
   cancelAnimationFrame(S.raf);
   S.elapsed = 0;
+  realDuration = 15;
   S.paused = false;
   $('#pause').textContent = 'Ⅱ';
   $('#transfer').classList.add('hidden');
+  $('#continueTrain').classList.add('hidden');
   realTrainer.reset(obs, { speed: S.speed, safety: S.safety, goal: S.goal, crash: S.crash });
   realLast = performance.now();
   S.raf = requestAnimationFrame(realFrame);
@@ -174,4 +183,19 @@ function startRealTraining() {
 
 startTraining = startRealTraining;
 $('#retry').onclick = startRealTraining;
+function continueRealTraining() {
+  cancelAnimationFrame(S.raf);
+  S.elapsed = 0;
+  realDuration = 10;
+  S.paused = false;
+  $("#pause").textContent = "Ⅱ";
+  $("#continueTrain").classList.add("hidden");
+  $("#transfer").classList.add("hidden");
+  realLast = performance.now();
+  toast(`世代 ${realTrainer.generation} から追加学習を開始`);
+  S.raf = requestAnimationFrame(realFrame);
+}
+
+$("#continueTrain").onclick = continueRealTraining;
+
 window.realTrainer = realTrainer;
