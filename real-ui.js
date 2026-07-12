@@ -198,4 +198,9 @@ function continueRealTraining() {
 
 $("#continueTrain").onclick = continueRealTraining;
 
+$("#backDesign").onclick = () => {
+  cancelAnimationFrame(S.raf);
+  go(1);
+};
+
 window.realTrainer = realTrainer;
