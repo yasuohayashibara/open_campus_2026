@@ -37,7 +37,7 @@ function drawRealNetwork(brain) {
     g.fill();
   }));
   g.fillStyle = '#617b8d';
-  g.font = '6px Inter,sans-serif';
+  g.font = '9px Inter,sans-serif';
   g.textAlign = 'center';
   g.fillText('STATE ×5', 22, 121);
   g.fillText('HIDDEN ×8', 115, 121);
@@ -54,7 +54,7 @@ function drawTrainingWorld() {
   ctx.lineWidth = 3;
   ctx.stroke();
   ctx.fillStyle = '#c7bbff';
-  ctx.font = 'bold 12px Inter,sans-serif';
+  ctx.font = 'bold 16px Inter,sans-serif';
   ctx.textAlign = 'center';
   ctx.fillText('GOAL', realTrainer.goal.x, realTrainer.goal.y + 4);
 
@@ -69,10 +69,10 @@ function drawTrainingWorld() {
     const matX = Math.round(45 + obstacle.x / 900 * 410);
     const matY = Math.round(45 + obstacle.y / 520 * 410);
     ctx.fillStyle = '#ffb17f';
-    ctx.font = '9px Inter,sans-serif';
+    ctx.font = '14px Inter,sans-serif';
     ctx.fillText(`O${index + 1}`, obstacle.x, obstacle.y + 3);
     ctx.fillStyle = '#9aabbb';
-    ctx.font = '7px Inter,sans-serif';
+    ctx.font = '11px Inter,sans-serif';
     ctx.fillText(`(${matX}, ${matY})`, obstacle.x, obstacle.y + obstacle.r + 13);
   });
 
@@ -103,13 +103,13 @@ function drawTrainingWorld() {
     ctx.strokeStyle = '#29485a';
     ctx.strokeRect(42, 35, 260, 110);
     ctx.fillStyle = '#6f899b';
-    ctx.font = '8px Inter,sans-serif';
+    ctx.font = '11px Inter,sans-serif';
     ctx.textAlign = 'left';
     ctx.fillText(`GENERATION ${realTrainer.generation} · ${realTrainer.populationSize} ROBOTS`, 57, 53);
     ctx.fillStyle = '#e9f8ff';
-    ctx.font = 'bold 12px sans-serif';
+    ctx.font = 'bold 16px sans-serif';
     ctx.fillText(best.reached ? 'ゴール方策を発見！' : '実報酬から重みを更新中…', 57, 74);
-    ctx.font = '8px Inter,sans-serif';
+    ctx.font = '11px Inter,sans-serif';
     ctx.fillStyle = '#8465ff';
     ctx.fillText(`GOAL DIST ${features[0].toFixed(2)}`, 57, 94);
     ctx.fillStyle = '#ff8b48';
