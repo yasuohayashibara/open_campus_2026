@@ -47,7 +47,7 @@ function drawRealNetwork(brain) {
 function drawTrainingWorld() {
   grid();
   ctx.beginPath();
-  ctx.arc(realTrainer.goal.x, realTrainer.goal.y, 35, 0, Math.PI * 2);
+  ctx.arc(realTrainer.goal.x, realTrainer.goal.y, realTrainer.goalRadius, 0, Math.PI * 2);
   ctx.fillStyle = '#8465ff33';
   ctx.fill();
   ctx.strokeStyle = '#8d70ff';
@@ -114,7 +114,7 @@ function drawTrainingWorld() {
 
   if (best) {
     const features = realTrainer.inputs(best);
-    const motors = realTrainer.infer(best.brain, features);
+    const motors = realTrainer.motorOutputs(best.brain, features);
     ctx.fillStyle = '#07141fdd';
     ctx.fillRect(42, 35, 260, 110);
     ctx.strokeStyle = '#29485a';

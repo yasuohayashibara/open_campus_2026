@@ -8,6 +8,7 @@ class RealTrainer {
     this.parameterCount = 66;
     this.populationSize = 96;
     this.goal = { x: 825, y: 90 };
+    this.goalRadius = 45;
     this.seed = 2026;
     this.generation = 0;
     this.evaluations = 0;
@@ -106,9 +107,13 @@ class RealTrainer {
     return output;
   }
 
+  motorOutputs(brain, inputs) {
+    return this.infer(brain, inputs).map(value => 0.1 + (value + 1) * 0.425);
+  }
+
   stepAgent(agent, dt) {
     if (!agent.alive) return;
-    const [leftRaw, rightRaw] = this.infer(agent.brain, this.inputs(agent));
+    const [leftRaw, rightRaw] = this.motorOutputs(agent.brain, this.inputs(agent));
     const speedScale = 135;
     const targetLeft = leftRaw * speedScale;
     const targetRight = rightRaw * speedScale;
@@ -149,7 +154,7 @@ class RealTrainer {
     if (effectiveClearance < 80) {
       agent.reward -= (80 - effectiveClearance) * dt * this.rewards.crash / 180;
     }
-    if (distance < 30) {
+    if (distance < this.goalRadius) {
       agent.reward += 100 + this.rewards.goal * 2 + (300 - this.steps) * 0.32;
       agent.alive = false;
       agent.reached = true;
