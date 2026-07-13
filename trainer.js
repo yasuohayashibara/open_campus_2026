@@ -14,6 +14,8 @@ class RealTrainer {
     this.successes = [];
     this.crashes = 0;
     this.bestEver = null;
+    this.bestSuccessful = null;
+    this.start = { x: 130, y: 366, angle: -0.38 };
     this.reset([], { speed: 60, safety: 75, goal: 80, crash: 70 });
   }
 
@@ -44,6 +46,7 @@ class RealTrainer {
     this.successes = [];
     this.crashes = 0;
     this.bestEver = null;
+    this.bestSuccessful = null;
     this.population = Array.from({ length: this.populationSize }, () => this.makeBrain());
     this.startGeneration();
   }
@@ -51,10 +54,10 @@ class RealTrainer {
   startGeneration() {
     this.steps = 0;
     this.agents = this.population.map((brain, index) => ({
-      brain, index, x: 65, y: 390, angle: -0.35 + (this.random() - 0.5) * 0.8,
-      reward: 0, alive: true, reached: false, path: [{ x: 65, y: 390 }],
+      brain, index, x: this.start.x, y: this.start.y, angle: this.start.angle + (this.random() - 0.5) * 0.8,
+      reward: 0, alive: true, reached: false, path: [{ x: this.start.x, y: this.start.y }],
       leftSpeed: 0, rightSpeed: 0, forward: 0, turnGrip: 1, brakingDistance: 0,
-      previousDistance: Math.hypot(this.goal.x - 65, this.goal.y - 390)
+      previousDistance: Math.hypot(this.goal.x - this.start.x, this.goal.y - this.start.y)
     }));
   }
 
@@ -64,7 +67,7 @@ class RealTrainer {
     const distance = Math.hypot(dx, dy);
     const goalAngle = Math.atan2(dy, dx);
     const relativeGoal = this.wrap(goalAngle - agent.angle);
-    let nearestDistance = 300;
+    let nearestDistance = 380;
     let nearestAngle = 0;
     for (const obstacle of this.obstacles) {
       const ox = obstacle.x - agent.x;
@@ -80,7 +83,7 @@ class RealTrainer {
       Math.min(1, distance / 850),
       Math.sin(relativeGoal),
       Math.cos(relativeGoal),
-      Math.min(1, nearestDistance / 300),
+      Math.min(1, nearestDistance / 380),
       Math.sin(nearestAngle)
     ];
   }
@@ -136,7 +139,8 @@ class RealTrainer {
       const d = Math.hypot(agent.x - obstacle.x, agent.y - obstacle.y) - obstacle.r - 10;
       nearest = Math.min(nearest, d);
       if (d <= 0) {
-        agent.reward -= 30 + this.rewards.crash * 1.4;
+        agent.reward -= 220 + this.rewards.crash * 5;
+        agent.reward = Math.min(agent.reward, -100);
         agent.alive = false;
         agent.crashed = true;
       }
@@ -169,6 +173,9 @@ class RealTrainer {
     for (const agent of this.agents) {
       if (agent.alive) agent.reward -= agent.previousDistance * 0.03;
       agent.brain.fitness = agent.reward;
+      if (agent.reached && (!this.bestSuccessful || agent.reward > this.bestSuccessful.fitness)) {
+        this.bestSuccessful = { weights: [...agent.brain.weights], fitness: agent.reward, successful: true, path: [...agent.path, { x: agent.x, y: agent.y }] };
+      }
       this.successes.push(agent.reached ? 1 : 0);
       if (agent.crashed) this.crashes++;
     }

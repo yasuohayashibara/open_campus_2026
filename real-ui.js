@@ -96,6 +96,22 @@ function drawTrainingWorld() {
     ctx.restore();
   }
 
+  const transferred = window.trainedPolicy;
+  if (transferred && transferred.path && transferred.path.length > 1) {
+    ctx.beginPath();
+    transferred.path.forEach((point, index) => ctx[index ? "lineTo" : "moveTo"](point.x, point.y));
+    ctx.strokeStyle = "#49f2a5";
+    ctx.lineWidth = 6;
+    ctx.shadowColor = "#49f2a5";
+    ctx.shadowBlur = 12;
+    ctx.stroke();
+    ctx.shadowBlur = 0;
+    ctx.fillStyle = "#49f2a5";
+    ctx.font = "bold 13px Inter,sans-serif";
+    ctx.textAlign = "left";
+    ctx.fillText("TRANSFERRED POLICY / 実機へ送る軌跡", 320, 45);
+  }
+
   if (best) {
     const features = realTrainer.inputs(best);
     const motors = realTrainer.infer(best.brain, features);
@@ -159,11 +175,17 @@ function realFrame(now) {
   drawTrainingWorld();
   updateRealMetrics();
   if (S.elapsed >= realDuration) {
-    window.trainedPolicy = realTrainer.bestEver;
-    $('#transfer').classList.remove('hidden');
+    window.trainedPolicy = realTrainer.bestSuccessful;
+    if (window.trainedPolicy) {
+      $('#transfer').classList.remove('hidden');
+      S.step = 3;
+      drawTrainingWorld();
+      toast(`成功個体を選択：${realTrainer.evaluations.toLocaleString()}個体を評価`);
+    } else {
+      $('#transfer').classList.add('hidden');
+      toast('成功個体がありません。＋10秒追加学習してください');
+    }
     $('#continueTrain').classList.remove('hidden');
-    S.step = 3;
-    toast(`実学習完了：${realTrainer.evaluations.toLocaleString()}個体を評価`);
     return;
   }
   S.raf = requestAnimationFrame(realFrame);
@@ -171,6 +193,7 @@ function realFrame(now) {
 
 function startRealTraining() {
   cancelAnimationFrame(S.raf);
+  window.trainedPolicy = null;
   S.elapsed = 0;
   realDuration = 15;
   S.paused = false;
@@ -186,6 +209,7 @@ startTraining = startRealTraining;
 $('#retry').onclick = startRealTraining;
 function continueRealTraining() {
   cancelAnimationFrame(S.raf);
+  window.trainedPolicy = null;
   S.elapsed = 0;
   realDuration = 10;
   S.paused = false;
