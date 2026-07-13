@@ -66,8 +66,9 @@ function drawTrainingWorld() {
     ctx.strokeStyle = '#ff8b48';
     ctx.lineWidth = 2;
     ctx.stroke();
-    const matX = Math.round(45 + obstacle.x / 900 * 410);
-    const matY = Math.round(45 + obstacle.y / 520 * 410);
+    const matPoint = simToMat(obstacle.x, obstacle.y);
+    const matX = Math.round(matPoint.x);
+    const matY = Math.round(matPoint.y);
     ctx.fillStyle = '#ffb17f';
     ctx.font = '14px Inter,sans-serif';
     ctx.fillText(`O${index + 1}`, obstacle.x, obstacle.y + 3);

@@ -119,7 +119,7 @@ class RealTrainer {
     agent.forward = forward;
     agent.turnGrip = turnGrip;
     agent.brakingDistance = forward * forward / 480;
-    agent.angle += (right - left) * 0.014 * turnGrip * dt;
+    agent.angle += (left - right) * 0.014 * turnGrip * dt;
     agent.x += Math.cos(agent.angle) * forward * dt;
     agent.y += Math.sin(agent.angle) * forward * dt;
 
