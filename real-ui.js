@@ -136,9 +136,9 @@ function drawTrainingWorld() {
     ctx.fillStyle = '#49f2a5';
     ctx.fillText(`MOTOR R ${motors[1].toFixed(2)}`, 155, 113);
     ctx.fillStyle = "#ffd166";
-    ctx.fillText(`MUTATION ${(0.18 + S.speed / 82).toFixed(2)}`, 57, 132);
+    ctx.fillText(`MUTATION ${(0.015 + S.speed / 70).toFixed(2)}`, 57, 132);
     ctx.fillStyle = best.turnGrip < 0.5 ? "#ff5475" : "#49f2a5";
-    ctx.fillText(`APPROACH ×${(0.18 + S.safety / 32).toFixed(1)}`, 155, 132);
+    ctx.fillText(`APPROACH ×${(S.safety / 25).toFixed(1)}`, 155, 132);
   }
   drawRealNetwork(realTrainer.bestEver || (best && best.brain));
 }
@@ -146,7 +146,8 @@ function drawTrainingWorld() {
 function updateRealMetrics() {
   const elapsedRatio = Math.min(1, S.elapsed / realDuration);
   const success = realTrainer.successRate();
-  const intelligence = Math.min(1, realTrainer.generation / 18 * 0.55 + success / 100 * 0.45);
+  const objectiveStrength = Math.min(1, (S.safety + S.goal + S.crash) / 120);
+  const intelligence = Math.min(1, (realTrainer.generation / 18 * 0.55 + success / 100 * 0.45) * objectiveStrength);
   const level = Math.min(5, Math.floor(intelligence * 6));
   const stages = ['重みをランダム生成', '報酬を比較中', '接近行動を獲得', '衝突回避を獲得', '経路を最適化', '方策が完成！'];
   $('#count').textContent = Math.max(0, realDuration - S.elapsed).toFixed(1);
@@ -155,12 +156,12 @@ function updateRealMetrics() {
   $('#crashes').textContent = realTrainer.crashes.toLocaleString();
   $('#ring').style.background = `conic-gradient(var(--cyan) ${elapsedRatio * 100}%,#1b3243 0)`;
   $('#reward').textContent = realTrainer.bestEver ? Math.round(realTrainer.bestEver.fitness) : '0';
-  const hint = S.speed > 85 ? "探索過多：良い方策が定着しにくい" : S.speed < 20 ? "探索不足：局所解から抜けにくい" : (S.safety > 85 && S.goal < 55) ? "接近報酬過多：近づくだけで満足する可能性" : S.goal < 35 ? "ゴール報酬不足：最後まで到達する理由が弱い" : S.crash > 90 ? "衝突罰過多：動かない方策に注意" : "探索・接近・到達・衝突罰のバランスを評価中";
+  const hint = objectiveStrength === 0 ? "報酬がすべて0：良い行動を区別できません" : S.speed > 85 ? "探索過多：良い方策が定着しにくい" : S.speed < 20 ? "探索不足：局所解から抜けにくい" : (S.safety > 85 && S.goal < 55) ? "接近報酬過多：近づくだけで満足する可能性" : S.goal < 35 ? "ゴール報酬不足：最後まで到達する理由が弱い" : S.crash > 90 ? "衝突罰過多：動かない方策に注意" : "探索・接近・到達・衝突罰のバランスを評価中";
   $("#log").textContent = `世代 ${realTrainer.generation}：${hint}`;
   $('#intelLevel').textContent = level;
   $('#intelBar').style.width = `${intelligence * 100}%`;
-  $('#intelStage').textContent = stages[level];
-  $('#dangerCount').textContent = Math.min(4, Math.floor(realTrainer.generation / 4));
+  document.querySelector("#intelStage").textContent = objectiveStrength === 0 ? "学習目標がありません" : stages[level];
+  $('#dangerCount').textContent = Math.min(4, Math.floor(realTrainer.generation / 4 * S.crash / 100));
   $('#ruleCount').textContent = Math.min(12, Math.floor(intelligence * 12));
   chart(intelligence);
 }
@@ -183,7 +184,7 @@ function realFrame(now) {
       toast(`成功個体を選択：${realTrainer.evaluations.toLocaleString()}個体を評価`);
     } else {
       $('#transfer').classList.add('hidden');
-      toast('成功個体がありません。＋10秒追加学習してください');
+      toast(S.safety + S.goal + S.crash === 0 ? '報酬がすべて0のため、方策は更新されませんでした' : '成功個体がありません。＋10秒追加学習してください');
     }
     $('#continueTrain').classList.remove('hidden');
     return;

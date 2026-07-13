@@ -34,7 +34,7 @@ class RealTrainer {
     const n = this.parameterCount;
     const weights = parent
       ? parent.weights.map(value => value + this.gaussian() * sigma)
-      : Array.from({ length: n }, () => this.gaussian() * (0.18 + this.rewards.speed / 145));
+      : Array.from({ length: n }, () => this.gaussian() * (0.05 + this.rewards.speed / 120));
     return { weights, fitness: 0 };
   }
 
@@ -133,10 +133,10 @@ class RealTrainer {
 
     const distance = Math.hypot(this.goal.x - agent.x, this.goal.y - agent.y);
     const progress = agent.previousDistance - distance;
-    agent.reward += progress * (0.18 + this.rewards.safety / 32);
-    agent.reward += Math.sqrt(Math.max(0, forward)) * dt * 0.12;
-    agent.reward -= (left * left + right * right) * dt * 0.000022;
-    agent.reward -= Math.abs(right - left) * Math.abs(forward) * dt * 0.00012;
+    agent.reward += progress * (this.rewards.safety / 25);
+    const objectiveScale = Math.min(1, (this.rewards.safety + this.rewards.goal + this.rewards.crash) / 30);
+    agent.reward -= (left * left + right * right) * dt * 0.000022 * objectiveScale;
+    agent.reward -= Math.abs(right - left) * Math.abs(forward) * dt * 0.00012 * objectiveScale;
     agent.previousDistance = distance;
 
     let nearest = Infinity;
@@ -144,8 +144,7 @@ class RealTrainer {
       const d = Math.hypot(agent.x - obstacle.x, agent.y - obstacle.y) - obstacle.r - 10;
       nearest = Math.min(nearest, d);
       if (d <= 0) {
-        agent.reward -= 220 + this.rewards.crash * 5;
-        agent.reward = Math.min(agent.reward, -100);
+        agent.reward -= this.rewards.crash * 6;
         agent.alive = false;
         agent.crashed = true;
       }
@@ -155,12 +154,12 @@ class RealTrainer {
       agent.reward -= (80 - effectiveClearance) * dt * this.rewards.crash / 180;
     }
     if (distance < this.goalRadius) {
-      agent.reward += 100 + this.rewards.goal * 2 + (300 - this.steps) * 0.32;
+      agent.reward += this.rewards.goal * 3.75 + (this.rewards.goal > 0 ? (300 - this.steps) * 0.15 : 0);
       agent.alive = false;
       agent.reached = true;
     }
     if (agent.x < 35 || agent.x > 865 || agent.y < 30 || agent.y > 490) {
-      agent.reward -= 45;
+      agent.reward -= this.rewards.crash * 0.65;
       agent.alive = false;
     }
     if (this.steps % 5 === 0 && agent.path.length < 80) agent.path.push({ x: agent.x, y: agent.y });
@@ -176,9 +175,9 @@ class RealTrainer {
 
   evolve() {
     for (const agent of this.agents) {
-      if (agent.alive) agent.reward -= agent.previousDistance * 0.03;
+      if (agent.alive) agent.reward -= agent.previousDistance * 0.03 * (this.rewards.safety / 75);
       agent.brain.fitness = agent.reward;
-      if (agent.reached && (!this.bestSuccessful || agent.reward > this.bestSuccessful.fitness)) {
+      if (agent.reached && (this.rewards.goal > 0 || this.rewards.safety > 0) && (!this.bestSuccessful || agent.reward > this.bestSuccessful.fitness)) {
         this.bestSuccessful = { weights: [...agent.brain.weights], fitness: agent.reward, successful: true, path: [...agent.path, { x: agent.x, y: agent.y }] };
       }
       this.successes.push(agent.reached ? 1 : 0);
@@ -186,12 +185,16 @@ class RealTrainer {
     }
     if (this.successes.length > 100) this.successes.splice(0, this.successes.length - 100);
     this.evaluations += this.populationSize;
+    if (this.rewards.safety + this.rewards.goal + this.rewards.crash === 0) {
+      this.startGeneration();
+      return;
+    }
     this.population.sort((a, b) => b.fitness - a.fitness);
     if (!this.bestEver || this.population[0].fitness > this.bestEver.fitness) {
       this.bestEver = { weights: [...this.population[0].weights], fitness: this.population[0].fitness };
     }
     const elites = this.population.slice(0, 8);
-    const exploration = 0.18 + this.rewards.speed / 82;
+    const exploration = 0.015 + this.rewards.speed / 70;
     const sigma = Math.max(0.025, exploration * Math.pow(0.982, this.generation));
     const next = elites.map(elite => ({ weights: [...elite.weights], fitness: 0 }));
     while (next.length < this.populationSize) {
