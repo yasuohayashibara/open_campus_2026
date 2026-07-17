@@ -11,21 +11,33 @@ keys.forEach(k=>$('#'+k).oninput=()=>{$$('[data-preset]').forEach(b=>b.classList
 $('#reset').onclick=()=>{$('[data-preset=balance]').click();toast('初期設定に戻しました')};$('#start').onclick=()=>{$('#hero').classList.add('hidden');$('#app').classList.remove('hidden');radar()};$('#train').onclick=()=>go(2);$('#transfer').onclick=()=>go(3);$$('.step').forEach(b=>b.onclick=()=>{if(+b.dataset.step<=S.step)go(+b.dataset.step)});$('#sound').onclick=()=>toast('サウンドを切り替えました');
 setInterval(()=>{if(!$('#app').classList.contains('hidden')&&S.session){S.session--;$('#time').textContent=`${String(S.session/60|0).padStart(2,'0')}:${String(S.session%60).padStart(2,'0')}`}},1000);
 const sim=$("#sim"),ctx=sim.getContext("2d"),layouts={standard:[{x:270,y:125,r:34},{x:455,y:350,r:42},{x:650,y:170,r:38},{x:710,y:390,r:26}],slalom:[{x:260,y:315,r:35},{x:420,y:175,r:38},{x:580,y:330,r:38},{x:720,y:165,r:32}],gate:[{x:345,y:215,r:42},{x:345,y:360,r:42},{x:610,y:100,r:38},{x:610,y:250,r:38}]};let obs=layouts.standard,currentLayout="A",last=0,episode=-1,event={type:"",age:9,x:0,y:0};
-// Change only this profile when moving between the bundled A4 mat and a large mat.
-// The A4 profile rotates raw Position ID coordinates to match a landscape screen.
+// The A3 developer mat has 12 different Position ID origins on its numbered side.
+// Each raw coordinate is resolved to a sheet first, then mapped from sheet-local coordinates.
 const MAT_PROFILES={
   a4:{name:"A4 MAT / LANDSCAPE (CALIBRATED)",xMin:260,xMax:388,yMin:153,yMax:342,rotation:"cw",inset:0},
+  a3:{name:"A3 DEVELOPER MAT / ANY NUMBERED SHEET",fit:"stretch",sheets:[
+    {id:1,xMin:34,xMax:339,yMin:35,yMax:250},
+    {id:2,xMin:34,xMax:339,yMin:251,yMax:466},
+    {id:3,xMin:34,xMax:339,yMin:467,yMax:682},
+    {id:4,xMin:34,xMax:339,yMin:683,yMax:898},
+    {id:5,xMin:340,xMax:644,yMin:35,yMax:250},
+    {id:6,xMin:340,xMax:644,yMin:251,yMax:466},
+    {id:7,xMin:340,xMax:644,yMin:467,yMax:682},
+    {id:8,xMin:340,xMax:644,yMin:683,yMax:898},
+    {id:9,xMin:645,xMax:949,yMin:35,yMax:250},
+    {id:10,xMin:645,xMax:949,yMin:251,yMax:466},
+    {id:11,xMin:645,xMax:949,yMin:467,yMax:682},
+    {id:12,xMin:645,xMax:949,yMin:683,yMax:898}
+  ]},
   large:{name:"LARGE PLAY MAT",xMin:45,xMax:455,yMin:45,yMax:455}
 };
-const MAT_PROFILE=MAT_PROFILES.a4;
-const MAT_SCALE=Math.min((MAT_PROFILE.xMax-MAT_PROFILE.xMin)/sim.width,(MAT_PROFILE.yMax-MAT_PROFILE.yMin)/sim.height);
-const MAT_OFFSET={
-  x:MAT_PROFILE.xMin+((MAT_PROFILE.xMax-MAT_PROFILE.xMin)-sim.width*MAT_SCALE)/2,
-  y:MAT_PROFILE.yMin+((MAT_PROFILE.yMax-MAT_PROFILE.yMin)-sim.height*MAT_SCALE)/2
-};
-function activeMatBounds(){let inset=MAT_PROFILE.inset||0;return{xMin:MAT_PROFILE.xMin+inset,xMax:MAT_PROFILE.xMax-inset,yMin:MAT_PROFILE.yMin+inset,yMax:MAT_PROFILE.yMax-inset}}
-function simToMat(x,y){if(MAT_PROFILE.rotation==="cw"){let b=activeMatBounds();return{x:b.xMin+y/sim.height*(b.xMax-b.xMin),y:b.yMax-x/sim.width*(b.yMax-b.yMin)}}return{x:MAT_OFFSET.x+x*MAT_SCALE,y:MAT_OFFSET.y+y*MAT_SCALE}}
-function matToSim(x,y){if(MAT_PROFILE.rotation==="cw"){let b=activeMatBounds();return{x:(b.yMax-y)/(b.yMax-b.yMin)*sim.width,y:(x-b.xMin)/(b.xMax-b.xMin)*sim.height}}return{x:(x-MAT_OFFSET.x)/MAT_SCALE,y:(y-MAT_OFFSET.y)/MAT_SCALE}}
+const MAT_PROFILE=MAT_PROFILES.a3;
+let activeMatSheet=MAT_PROFILE.sheets?.[0]||MAT_PROFILE;
+function matBounds(sheet=activeMatSheet){let inset=MAT_PROFILE.inset||0;return{xMin:sheet.xMin+inset,xMax:sheet.xMax-inset,yMin:sheet.yMin+inset,yMax:sheet.yMax-inset}}
+function findMatSheet(x,y){return MAT_PROFILE.sheets?.find(sheet=>x>=sheet.xMin&&x<=sheet.xMax&&y>=sheet.yMin&&y<=sheet.yMax)||(!MAT_PROFILE.sheets&&x>=MAT_PROFILE.xMin&&x<=MAT_PROFILE.xMax&&y>=MAT_PROFILE.yMin&&y<=MAT_PROFILE.yMax?MAT_PROFILE:null)}
+function matTransform(sheet=activeMatSheet){let b=matBounds(sheet),width=b.xMax-b.xMin,height=b.yMax-b.yMin;if(MAT_PROFILE.fit==="stretch"||MAT_PROFILE.rotation==="cw")return{b,scaleX:width/sim.width,scaleY:height/sim.height,offsetX:b.xMin,offsetY:b.yMin};let scale=Math.min(width/sim.width,height/sim.height);return{b,scaleX:scale,scaleY:scale,offsetX:b.xMin+(width-sim.width*scale)/2,offsetY:b.yMin+(height-sim.height*scale)/2}}
+function simToMat(x,y){let t=matTransform();if(MAT_PROFILE.rotation==="cw")return{x:t.b.xMin+y/sim.height*(t.b.xMax-t.b.xMin),y:t.b.yMax-x/sim.width*(t.b.yMax-t.b.yMin),sheet:activeMatSheet.id};return{x:t.offsetX+x*t.scaleX,y:t.offsetY+y*t.scaleY,sheet:activeMatSheet.id}}
+function matToSim(x,y){let sheet=findMatSheet(x,y);if(!sheet)return{x:NaN,y:NaN,sheet:null};activeMatSheet=sheet;let t=matTransform(sheet);if(MAT_PROFILE.rotation==="cw")return{x:(t.b.yMax-y)/(t.b.yMax-t.b.yMin)*sim.width,y:(x-t.b.xMin)/(t.b.xMax-t.b.xMin)*sim.height,sheet:sheet.id};return{x:(x-t.offsetX)/t.scaleX,y:(y-t.offsetY)/t.scaleY,sheet:sheet.id}}
 function matAngleToSim(angle){let corrected=MAT_PROFILE.rotation==="cw"?angle+90:angle;return corrected*Math.PI/180}
 function isInsideRealCourse(p){return p.x>=0&&p.x<=sim.width&&p.y>=0&&p.y<=sim.height}
 function grid(){ctx.fillStyle='#07141f';ctx.fillRect(0,0,900,520);ctx.strokeStyle='#153044';for(let q=0;q<900;q+=45){ctx.beginPath();ctx.moveTo(q,0);ctx.lineTo(q,520);ctx.stroke()}for(let q=0;q<520;q+=45){ctx.beginPath();ctx.moveTo(0,q);ctx.lineTo(900,q);ctx.stroke()}ctx.setLineDash([5,7]);ctx.strokeStyle='#2a475a';ctx.strokeRect(32,28,836,464);ctx.setLineDash([]);ctx.fillStyle="#7890a2";ctx.font="bold 13px Inter,sans-serif";ctx.textAlign="right";ctx.fillText(`COURSE ${currentLayout} · TOIO MAT COORDINATES`,850,505);ctx.textAlign="center"}
