@@ -320,9 +320,9 @@ function evaluationMarkup(snapshot, isChampion = false) {
     return `<div class="reward-row"><span>${label}</span><i class="${value >= 0 ? 'positive' : 'negative'}" style="--value:${width}%"></i><b>${signed(value)}</b></div>`;
   }).join('');
   return `
+    <div class="parameter-showcase"><b>選んだパラメータ</b><div><span><small>探索</small><strong>${stages[settings.speed]}</strong></span><span><small>接近</small><strong>${stages[settings.safety]}</strong></span><span><small>ゴール</small><strong>${stages[settings.goal]}</strong></span><span><small>衝突罰</small><strong>${stages[settings.crash]}</strong></span></div></div>
     <div class="evaluation-score"><b>${result.successes}<small><span>/12</span> GOAL</small></b><strong class="${result.passed ? 'pass' : 'retry'}">${result.passed ? '実機候補' : '要改善'}<small>評価判定</small></strong></div>
     <div class="evaluation-facts"><span>学習時間 <b>${snapshot.trainingSeconds || 0}秒</b></span><span>難易度 <b>${difficulty}</b></span><span>衝突 <b>${result.crashes}/12</b></span><span>評価報酬 <b>${signed(result.averageReward)}</b></span></div>
-    <div class="reward-settings"><b>選んだパラメータ</b><span>探索 ${stages[settings.speed]}</span><span>接近 ${stages[settings.safety]}</span><span>ゴール ${stages[settings.goal]}</span><span>衝突罰 ${stages[settings.crash]}</span></div>
     <details class="reward-details"><summary>報酬の内訳を見る</summary><div class="reward-breakdown">${rows}</div></details>
     ${isChampion ? '<em class="champion-badge">実機へ転送するモデル</em>' : ''}`;
 }
