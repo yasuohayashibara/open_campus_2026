@@ -273,6 +273,7 @@ function updateRealMetrics() {
 
 const trainingHistory = [];
 let trainingCandidate = null;
+let baselineObservation = false;
 let historicalBest = null;
 
 function candidateFromTraining() {
@@ -365,6 +366,54 @@ function finishTrainingEnvironment() {
   }
 }
 
+function completeNoRewardObservation() {
+  cancelAnimationFrame(S.raf);
+  baselineObservation = false;
+  S.paused = true;
+  const success = realTrainer.successRate();
+  $('#trainingState').textContent = '確認完了';
+  $('#baselineResult').innerHTML = `<b>報酬なしの結果：成功率 ${success}%</b><span>良い行動を比べる点数がないため、ゴールできる割合はほとんど増えませんでした。</span>`;
+  $('#baselineResult').classList.remove('hidden');
+  $('#baselineContinue').classList.remove('hidden');
+  toast('報酬がないと、AIは成功した動きを選んで残せません');
+}
+
+function startNoRewardObservation() {
+  for (const key of ['speed', 'safety', 'goal', 'crash']) $(`#${key}`).value = 0;
+  rewards();
+  document.body.classList.add('baseline-focus', 'training-focus');
+  $$('.panel').forEach(panel => panel.classList.toggle('active', +panel.dataset.panel === 2));
+  $$('.step').forEach(step => step.classList.toggle('active', +step.dataset.step === 0));
+  startRealTraining();
+  baselineObservation = true;
+  realDuration = 8;
+  $('#trainingEyebrow').textContent = 'STEP 00 — NO REWARD OBSERVATION';
+  $('#trainingTitle').textContent = '報酬なしで動きを確認中';
+  $('#trainingDescription').textContent = 'どの行動も同じ0点。動いても、良い動きを選んで残せません。';
+  $('#trainingState').textContent = '報酬なしを観察中';
+  $('#baselineResult').classList.add('hidden');
+  $('#baselineContinue').classList.add('hidden');
+  scrollTo({ top: 0, behavior: 'smooth' });
+}
+
+function finishNoRewardObservation() {
+  document.body.classList.remove('baseline-focus', 'training-focus');
+  S.step = 1;
+  $$('.panel').forEach(panel => panel.classList.toggle('active', +panel.dataset.panel === 1));
+  $$('.step').forEach(step => step.classList.toggle('active', +step.dataset.step === 1));
+  $('#trainingEyebrow').textContent = 'STEP 02 — HIGH SPEED TRAINING';
+  $('#trainingTitle').textContent = 'AIが試行錯誤しています';
+  $('#trainingDescription').textContent = '失敗するたびに、少しずつ上手くなる。';
+  $('#baselineResult').classList.add('hidden');
+  $('#baselineContinue').classList.add('hidden');
+  rewards();
+  scrollTo({ top: 0, behavior: 'smooth' });
+  toast('次は、行動を選ぶ手掛かりとなる報酬を設計しましょう');
+}
+
+window.startNoRewardObservation = startNoRewardObservation;
+window.finishNoRewardObservation = finishNoRewardObservation;
+
 function realFrame(now) {
   const dt = Math.min(0.05, (now - realLast) / 1000);
   realLast = now;
@@ -375,7 +424,8 @@ function realFrame(now) {
   drawTrainingWorld();
   updateRealMetrics();
   if (S.elapsed >= realDuration) {
-    finishTrainingEnvironment();
+    if (baselineObservation) completeNoRewardObservation();
+    else finishTrainingEnvironment();
     return;
   }
   S.raf = requestAnimationFrame(realFrame);
@@ -383,6 +433,9 @@ function realFrame(now) {
 
 function startRealTraining() {
   document.body.classList.remove('evaluation-focus');
+  baselineObservation = false;
+  $('#baselineResult').classList.add('hidden');
+  $('#baselineContinue').classList.add('hidden');
   cancelAnimationFrame(S.raf);
   window.trainedPolicy = null;
   trainingCandidate = null;
