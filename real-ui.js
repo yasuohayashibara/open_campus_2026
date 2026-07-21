@@ -285,7 +285,8 @@ function candidateFromTraining() {
     rewards: { speed: S.speed, safety: S.safety, goal: S.goal, crash: S.crash },
     difficulty: S.difficulty,
     environment: currentLayout,
-    generation: realTrainer.generation
+    generation: realTrainer.generation,
+    evaluations: realTrainer.evaluations
   };
 }
 
@@ -436,7 +437,7 @@ function updateExamMetrics() {
   const crashes = realTrainer.agents.filter(agent => agent.crashed).length;
   const progress = Math.min(1, realTrainer.steps / 300);
   $('#count').textContent = ((300 - realTrainer.steps) / 30).toFixed(1);
-  $('#success').textContent = `${successes} / 10`;
+  $('#success').textContent = `${successes} / 12`;
   $('#crashes').textContent = String(crashes);
   $('#ring').style.background = `conic-gradient(var(--cyan) ${progress * 100}%,#1b3243 0)`;
   $('#log').textContent = `固定12環境を評価中：成功 ${successes} ／ 走行中 ${alive}`;
@@ -454,7 +455,7 @@ function finishCandidateEvaluation() {
   renderEvaluationComparison(current, previousBest, isNewBest);
   document.body.classList.add('evaluation-focus');
   $('#evaluationPanel').scrollIntoView({ behavior: 'smooth', block: 'start' });
-  $('#success').textContent = `${result.successes} / 10`;
+  $('#success').textContent = `${result.successes} / 12`;
   $('#crashes').textContent = String(result.crashes);
   $('#trainingState').textContent = '12環境の評価完了';
   $('#continueTrain').classList.remove('hidden');
@@ -467,7 +468,8 @@ function finishCandidateEvaluation() {
       examPassed: true,
       evaluation: historicalBest.evaluation,
       rewards: historicalBest.rewards,
-      difficulty: historicalBest.difficulty
+      difficulty: historicalBest.difficulty,
+      evaluations: historicalBest.evaluations
     };
     $('#btype').textContent = `BEST MODEL · ${historicalBest.evaluation.successes}/12`;
     $('#transfer').classList.remove('hidden');
