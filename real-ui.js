@@ -275,6 +275,7 @@ const trainingHistory = [];
 let trainingCandidate = null;
 let baselineObservation = false;
 let historicalBest = null;
+let accumulatedTrainingSeconds = 0;
 
 function candidateFromTraining() {
   const source = realTrainer.bestSuccessful || realTrainer.bestEver;
@@ -287,7 +288,8 @@ function candidateFromTraining() {
     difficulty: S.difficulty,
     environment: currentLayout,
     generation: realTrainer.generation,
-    evaluations: realTrainer.evaluations
+    evaluations: realTrainer.evaluations,
+    trainingSeconds: accumulatedTrainingSeconds
   };
 }
 
@@ -311,15 +313,17 @@ function evaluationMarkup(snapshot, isChampion = false) {
   if (!snapshot) return '<p class="empty-evaluation">比較対象はまだありません</p>';
   const result = snapshot.evaluation;
   const settings = snapshot.rewards;
+  const stages = { 0: '無', 35: '弱', 70: '中', 100: '強' };
+  const difficulty = { easy: '初級', standard: '中級', challenge: '上級' }[snapshot.difficulty] || '中級';
   const rows = groupedBreakdown(result).map(([label, value]) => {
     const width = Math.min(100, Math.abs(value) / 3.5);
     return `<div class="reward-row"><span>${label}</span><i class="${value >= 0 ? 'positive' : 'negative'}" style="--value:${width}%"></i><b>${signed(value)}</b></div>`;
   }).join('');
   return `
-    <div class="evaluation-score"><b>${result.successes}<small>/12 GOAL</small></b><strong>${Math.round(result.deploymentScore)}<small>実機適性</small></strong></div>
-    <div class="evaluation-stats"><span>衝突 <b>${result.crashes}/12</b></span><span>平均 <b>${result.averageTime.toFixed(1)}秒</b></span><span>安全距離 <b>${Math.round(result.averageClearance)}</b></span></div>
-    <div class="reward-settings"><span>探索 ${settings.speed}</span><span>接近 ${settings.safety}</span><span>ゴール ${settings.goal}</span><span>衝突罰 ${settings.crash}</span></div>
-    <div class="reward-breakdown"><small>12環境の平均報酬内訳</small>${rows}<div class="reward-total"><span>評価報酬</span><b>${signed(result.averageReward)}</b></div></div>
+    <div class="evaluation-score"><b>${result.successes}<small><span>/12</span> GOAL</small></b><strong class="${result.passed ? 'pass' : 'retry'}">${result.passed ? '実機候補' : '要改善'}<small>評価判定</small></strong></div>
+    <div class="evaluation-facts"><span>学習時間 <b>${snapshot.trainingSeconds || 0}秒</b></span><span>難易度 <b>${difficulty}</b></span><span>衝突 <b>${result.crashes}/12</b></span><span>評価報酬 <b>${signed(result.averageReward)}</b></span></div>
+    <div class="reward-settings"><b>選んだパラメータ</b><span>探索 ${stages[settings.speed]}</span><span>接近 ${stages[settings.safety]}</span><span>ゴール ${stages[settings.goal]}</span><span>衝突罰 ${stages[settings.crash]}</span></div>
+    <details class="reward-details"><summary>報酬の内訳を見る</summary><div class="reward-breakdown">${rows}</div></details>
     ${isChampion ? '<em class="champion-badge">実機へ転送するモデル</em>' : ''}`;
 }
 
@@ -327,23 +331,24 @@ function renderEvaluationComparison(current, previousBest, isNewBest) {
   const comparison = previousBest || current;
   $('#evaluationPanel').classList.remove('hidden');
   $('#currentEvaluation').innerHTML = evaluationMarkup(current, isNewBest);
+  const stages = { 0: '無', 35: '弱', 70: '中', 100: '強' };
   $('#bestEvaluation').innerHTML = evaluationMarkup(comparison, !isNewBest && comparison === historicalBest);
   const rewardNames = { speed: '探索幅', safety: '接近報酬', goal: 'ゴール報酬', crash: '衝突罰' };
   if (!previousBest) {
-    $('#rewardImpact').textContent = '初回評価を基準記録にしました。報酬を変えて再学習すると、設定差と結果差をここで比較できます。';
+    $('#rewardImpact').textContent = 'この結果を基準にしました。報酬を変えて再学習すると、成功数の変化を比較できます。';
     return;
   }
   const key = Object.keys(rewardNames).sort((a, b) =>
     Math.abs(current.rewards[b] - previousBest.rewards[b]) - Math.abs(current.rewards[a] - previousBest.rewards[a])
   )[0];
-  const settingDelta = current.rewards[key] - previousBest.rewards[key];
   const successDelta = current.evaluation.successes - previousBest.evaluation.successes;
   const crashDelta = current.evaluation.crashes - previousBest.evaluation.crashes;
   $('#rewardImpact').textContent =
-    `${rewardNames[key]} ${settingDelta >= 0 ? '+' : ''}${settingDelta}。同じ12環境で、成功 ${successDelta >= 0 ? '+' : ''}${successDelta}、衝突 ${crashDelta >= 0 ? '+' : ''}${crashDelta}。報酬差と行動結果を比較してください。`;
+    `${rewardNames[key]}：${stages[previousBest.rewards[key]]} → ${stages[current.rewards[key]]}。成功 ${successDelta >= 0 ? '+' : ''}${successDelta}、衝突 ${crashDelta >= 0 ? '+' : ''}${crashDelta}。`;
 }
 
 function finishTrainingEnvironment() {
+  accumulatedTrainingSeconds += realDuration;
   trainingCandidate = candidateFromTraining();
   trainingHistory.push({
     environment: currentLayout,
@@ -433,6 +438,7 @@ function realFrame(now) {
 
 function startRealTraining() {
   document.body.classList.remove('evaluation-focus');
+  accumulatedTrainingSeconds = 0;
   baselineObservation = false;
   $('#baselineResult').classList.add('hidden');
   $('#baselineContinue').classList.add('hidden');
