@@ -2,6 +2,12 @@
 const realTrainer = new RealTrainer();
 let realLast = 0;
 let realDuration = 15;
+let trainingStepBudget = 0;
+let evaluationLast = 0;
+let evaluationStepBudget = 0;
+const TRAINING_STEPS_PER_SECOND = { initial: 80, additional: 360 };
+let activeTrainingStepsPerSecond = TRAINING_STEPS_PER_SECOND.initial;
+const EVALUATION_STEPS_PER_SECOND = 60;
 
 function drawRealNetwork(brain) {
   const canvas = $('#network');
@@ -276,6 +282,69 @@ let trainingCandidate = null;
 let baselineObservation = false;
 let historicalBest = null;
 let accumulatedTrainingSeconds = 0;
+let currentRunBest = null;
+let experimentLog = [];
+try { localStorage.removeItem('rl-lab-experiment-log-v1'); } catch (_) {}
+
+function recordExperiment(snapshot, accepted) {
+  const result = snapshot.evaluation;
+  const environments = trainingHistory.map(item => item.environment.match(/障害物 (\d+)個/)?.[1]).filter(Boolean);
+  experimentLog.push({
+    id: Date.now() + experimentLog.length,
+    createdAt: Date.now(),
+    rewards: { ...snapshot.rewards },
+    difficulty: snapshot.difficulty,
+    trainingSeconds: snapshot.trainingSeconds || 0,
+    generation: snapshot.generation || 0,
+    environments: environments.length ? environments : ['2'],
+    successes: result.successes,
+    crashes: result.crashes,
+    averageReward: Math.round(result.averageReward),
+    deploymentScore: Math.round(result.deploymentScore),
+    passed: result.passed,
+    accepted
+  });
+  experimentLog = experimentLog.slice(-50);
+  fetch('/experiment-log', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(experimentLog[experimentLog.length - 1])
+  }).catch(() => {});
+  renderExperimentLog();
+}
+
+function renderExperimentLog() {
+  const panel = $('#experimentLogPanel');
+  const rows = $('#experimentLogRows');
+  if (!panel || !rows) return;
+  panel.classList.toggle('hidden', experimentLog.length === 0);
+  if (!experimentLog.length) {
+    rows.innerHTML = '';
+    return;
+  }
+  const stages = { 0: '無', 35: '弱', 70: '中', 100: '強' };
+  const best = experimentLog.reduce((champion, item) => {
+    if (!champion || (item.passed && !champion.passed)) return item;
+    if (item.passed === champion.passed && item.deploymentScore > champion.deploymentScore) return item;
+    return champion;
+  }, null);
+  rows.innerHTML = [...experimentLog].reverse().slice(0, 12).map((item, index) => {
+    const rewards = item.rewards || {};
+    const trialNumber = experimentLog.length - index;
+    const route = (item.environments || ['2']).map(value => `${Number(value) || 2}個`).join('→');
+    const settings = `探${stages[rewards.speed] || '?'} 接${stages[rewards.safety] || '?'} ゴ${stages[rewards.goal] || '?'} 衝${stages[rewards.crash] || '?'}`;
+    const decision = item.accepted === false ? '見送り' : '採用';
+    return `<div class="experiment-log-row ${item.id === best.id ? 'best' : ''} ${item.accepted === false ? 'rejected' : ''}"><b>#${trialNumber}${item.id === best.id ? ' BEST' : ''}<small>${decision}</small></b><span>${settings}</span><span>${route}・${Number(item.trainingSeconds) || 0}秒・${Number(item.generation) || 0}世代</span><strong>${Number(item.successes) || 0}/12</strong><small>衝突 ${Number(item.crashes) || 0}・報酬 ${Number(item.averageReward) || 0}</small></div>`;
+  }).join('');
+}
+
+$('#clearExperimentLog').onclick = () => {
+  if (!confirm('このページの試行ログをすべて消去しますか？')) return;
+  experimentLog = [];
+  renderExperimentLog();
+};
+renderExperimentLog();
+
 
 function candidateFromTraining() {
   const source = realTrainer.bestSuccessful || realTrainer.bestEver;
@@ -315,6 +384,7 @@ function evaluationMarkup(snapshot, isChampion = false) {
   const settings = snapshot.rewards;
   const stages = { 0: '無', 35: '弱', 70: '中', 100: '強' };
   const difficulty = { easy: '初級', standard: '中級', challenge: '上級' }[snapshot.difficulty] || '中級';
+  const obstacleCount = (snapshot.environment || '').match(/障害物 (\d+)個/)?.[1] || '2';
   const rows = groupedBreakdown(result).map(([label, value]) => {
     const width = Math.min(100, Math.abs(value) / 3.5);
     return `<div class="reward-row"><span>${label}</span><i class="${value >= 0 ? 'positive' : 'negative'}" style="--value:${width}%"></i><b>${signed(value)}</b></div>`;
@@ -322,15 +392,77 @@ function evaluationMarkup(snapshot, isChampion = false) {
   return `
     <div class="parameter-showcase"><b>選んだパラメータ</b><div><span><small>探索</small><strong>${stages[settings.speed]}</strong></span><span><small>接近</small><strong>${stages[settings.safety]}</strong></span><span><small>ゴール</small><strong>${stages[settings.goal]}</strong></span><span><small>衝突罰</small><strong>${stages[settings.crash]}</strong></span></div></div>
     <div class="evaluation-score"><b>${result.successes}<small><span>/12</span> GOAL</small></b><strong class="${result.passed ? 'pass' : 'retry'}">${result.passed ? '実機候補' : '要改善'}<small>評価判定</small></strong></div>
-    <div class="evaluation-facts"><span>学習時間 <b>${snapshot.trainingSeconds || 0}秒</b></span><span>難易度 <b>${difficulty}</b></span><span>衝突 <b>${result.crashes}/12</b></span><span>評価報酬 <b>${signed(result.averageReward)}</b></span></div>
+    <div class="evaluation-facts"><span>学習時間 <b>${snapshot.trainingSeconds || 0}秒</b></span><span>走行・障害物 <b>${difficulty}・${obstacleCount}個</b></span><span>衝突 <b>${result.crashes}/12</b></span><span>評価報酬 <b>${signed(result.averageReward)}</b></span></div>
     <details class="reward-details"><summary>報酬の内訳を見る</summary><div class="reward-breakdown">${rows}</div></details>
     ${isChampion ? '<em class="champion-badge">実機へ転送するモデル</em>' : ''}`;
 }
 
-function renderEvaluationComparison(current, previousBest, isNewBest) {
+function evaluationAdvice(snapshot, retainedPrevious = false) {
+  const result = snapshot.evaluation;
+  const rewards = snapshot.rewards;
+  const seconds = snapshot.trainingSeconds || 0;
+  const environment = snapshot.environment || '';
+  const allStrong = Object.values(rewards).every(value => value === 100);
+  const rewardMismatch = result.averageReward >= 900 && result.successes <= 4;
+  if (retainedPrevious) {
+    return '<b>今回の更新は見送りました</b><span>固定12環境で成績が下がったため、能力は上書きせず、次の追加学習を歴代ベストから再開します。</span>';
+  }
+
+  let title;
+  let action;
+
+  if (result.passed) {
+    if (environment.includes('障害物 2個')) {
+      title = '合格です。次は環境を変えて確かめよう';
+      action = '障害物4個で10秒追加し、回避の汎化を試してください。';
+    } else if (environment.includes('障害物 4個')) {
+      title = '複雑な環境でも合格です';
+      action = '障害物6個で10秒追加し、さらに未知の配置へ強くなるか試してください。';
+    } else {
+      title = '実機候補になる汎化性能です';
+      action = '歴代ベストと報酬を比べ、隣の強さへ1項目だけ変えると効果を確認できます。';
+    }
+  } else if (allStrong) {
+    title = '全部「強」でも成功は増えません';
+    action = '探索を弱、衝突罰を中へ下げて再学習してください。強い報酬同士の競合を減らせます。';
+  } else if (seconds <= 15 && result.successes >= 3 && rewards.speed <= 35 && rewards.safety === 100 && rewards.goal === 100) {
+    title = '複雑な環境で伸びる準備ができています';
+    action = '障害物6個で10秒追加し、回避の経験を増やしてください。';
+  } else if (seconds <= 15 && result.successes >= 3) {
+    title = '成功の芽があります';
+    action = 'まず同じ障害物数で10秒追加してください。7/12へ届くか、時間の効果を確認できます。';
+  } else if (result.crashes >= 6 && rewards.crash === 100) {
+    title = '衝突罰が強すぎる可能性があります';
+    action = '衝突罰を中へ戻し、探索も強すぎない設定で再学習してください。';
+  } else if (result.crashes >= 6 && rewards.crash < 70) {
+    title = '衝突から学ぶ手掛かりが不足しています';
+    action = '衝突罰を1段階上げて再学習してください。';
+  } else if (result.successes <= 2 && rewards.safety < 70) {
+    title = 'ゴールへ近づく手掛かりが不足しています';
+    action = '接近報酬を中へ上げ、ほかは変えずに再学習してください。';
+  } else if (result.successes <= 2 && rewards.goal < 70) {
+    title = '最後まで到達する理由が不足しています';
+    action = 'ゴール報酬を中へ上げ、ほかは変えずに再学習してください。';
+  } else if (seconds >= 25 && result.successes <= 3) {
+    title = '学習時間より報酬を見直す段階です';
+    action = '追加学習を続けず、探索・接近・ゴール・衝突罰のうち1項目だけ変えて比較してください。';
+  } else if (result.successes >= 4 && result.crashes >= 5) {
+    title = '到達できますが、回避が不安定です';
+    action = '障害物4個で10秒追加するか、衝突罰を1段階変えて回避の変化を比べてください。';
+  } else {
+    title = '1項目だけ変えて原因を確かめよう';
+    action = '接近報酬かゴール報酬を1段階変え、同じ障害物数で再学習してください。';
+  }
+
+  const note = rewardMismatch ? ' 評価報酬は高くてもゴールが少ないため、報酬値の大きさを成功と取り違えないことが大切です。' : '';
+  return `<b>次の一手：${title}</b><span>${action}${note}</span>`;
+}
+
+function renderEvaluationComparison(current, previousBest, isNewBest, acceptedInRun) {
   const comparison = previousBest || current;
   $('#evaluationPanel').classList.remove('hidden');
   $('#currentEvaluation').innerHTML = evaluationMarkup(current, isNewBest);
+  $('#evaluationAdvice').innerHTML = evaluationAdvice(current, !acceptedInRun);
   const stages = { 0: '無', 35: '弱', 70: '中', 100: '強' };
   $('#bestEvaluation').innerHTML = evaluationMarkup(comparison, !isNewBest && comparison === historicalBest);
   const rewardNames = { speed: '探索幅', safety: '接近報酬', goal: 'ゴール報酬', crash: '衝突罰' };
@@ -424,7 +556,12 @@ function realFrame(now) {
   realLast = now;
   if (!S.paused) {
     S.elapsed = Math.min(realDuration, S.elapsed + dt);
-    realTrainer.step(6);
+    trainingStepBudget += dt * activeTrainingStepsPerSecond;
+    const trainingSteps = Math.floor(trainingStepBudget);
+    if (trainingSteps > 0) {
+      realTrainer.step(trainingSteps);
+      trainingStepBudget -= trainingSteps;
+    }
   }
   drawTrainingWorld();
   updateRealMetrics();
@@ -439,6 +576,8 @@ function realFrame(now) {
 function startRealTraining() {
   document.body.classList.remove('evaluation-focus');
   accumulatedTrainingSeconds = 0;
+  currentRunBest = null;
+  trainingHistory.length = 0;
   baselineObservation = false;
   $('#baselineResult').classList.add('hidden');
   $('#baselineContinue').classList.add('hidden');
@@ -456,6 +595,8 @@ function startRealTraining() {
   $('#exam').classList.add('hidden');
   $('#continueTrain').classList.add('hidden');
   realTrainer.reset(obs, { speed: S.speed, safety: S.safety, goal: S.goal, crash: S.crash }, S.difficulty);
+  trainingStepBudget = 0;
+  activeTrainingStepsPerSecond = TRAINING_STEPS_PER_SECOND.initial;
   realLast = performance.now();
   S.raf = requestAnimationFrame(realFrame);
 }
@@ -474,9 +615,11 @@ function continueRealTraining() {
   document.body.classList.remove('evaluation-focus');
   cancelAnimationFrame(S.raf);
   window.trainedPolicy = null;
+  const latestCandidate = trainingCandidate;
+  const validatedChampion = currentRunBest || latestCandidate;
   trainingCandidate = null;
   prepareTrainingEnvironment();
-  realTrainer.continueEnvironment(obs, S.difficulty);
+  realTrainer.continueEnvironment(obs, S.difficulty, validatedChampion);
   S.elapsed = 0;
   realDuration = 10;
   S.paused = false;
@@ -485,6 +628,8 @@ function continueRealTraining() {
   $('#continueTrain').classList.add('hidden');
   $('#exam').classList.add('hidden');
   $('#transfer').classList.add('hidden');
+  trainingStepBudget = 0;
+  activeTrainingStepsPerSecond = TRAINING_STEPS_PER_SECOND.additional;
   realLast = performance.now();
   toast(`個体群を保持して${currentLayout}で追加学習`);
   S.raf = requestAnimationFrame(realFrame);
@@ -495,7 +640,7 @@ function updateExamMetrics() {
   const successes = realTrainer.agents.filter(agent => agent.reached).length;
   const crashes = realTrainer.agents.filter(agent => agent.crashed).length;
   const progress = Math.min(1, realTrainer.steps / 300);
-  $('#count').textContent = ((300 - realTrainer.steps) / 30).toFixed(1);
+  $('#count').textContent = ((300 - realTrainer.steps) / EVALUATION_STEPS_PER_SECOND).toFixed(1);
   $('#success').textContent = `${successes} / 12`;
   $('#crashes').textContent = String(crashes);
   $('#ring').style.background = `conic-gradient(var(--cyan) ${progress * 100}%,#1b3243 0)`;
@@ -506,12 +651,19 @@ function updateExamMetrics() {
 function finishCandidateEvaluation() {
   const result = realTrainer.evaluationResult();
   const current = { ...trainingCandidate, evaluation: result };
+  const acceptedInRun = !currentRunBest
+    || (result.passed && !currentRunBest.evaluation.passed)
+    || (result.passed === currentRunBest.evaluation.passed
+      && result.deploymentScore > currentRunBest.evaluation.deploymentScore);
+  if (acceptedInRun) currentRunBest = current;
+
   const previousBest = historicalBest;
   const isNewBest = !historicalBest
     || (result.passed && !historicalBest.evaluation.passed)
     || (result.passed === historicalBest.evaluation.passed && result.deploymentScore > historicalBest.evaluation.deploymentScore);
   if (isNewBest) historicalBest = current;
-  renderEvaluationComparison(current, previousBest, isNewBest);
+  recordExperiment(current, acceptedInRun);
+  renderEvaluationComparison(current, previousBest, isNewBest, acceptedInRun);
   document.body.classList.add('evaluation-focus');
   $('#evaluationPanel').scrollIntoView({ behavior: 'smooth', block: 'start' });
   $('#success').textContent = `${result.successes} / 12`;
@@ -541,8 +693,17 @@ function finishCandidateEvaluation() {
   toast(isNewBest ? '歴代ベストを更新しました' : '評価完了。実機には歴代ベストを転送します');
 }
 
-function examFrame() {
-  if (!S.paused) realTrainer.stepEvaluation(1);
+function examFrame(now) {
+  const dt = Math.min(0.05, (now - evaluationLast) / 1000);
+  evaluationLast = now;
+  if (!S.paused) {
+    evaluationStepBudget += dt * EVALUATION_STEPS_PER_SECOND;
+    const evaluationSteps = Math.floor(evaluationStepBudget);
+    if (evaluationSteps > 0) {
+      realTrainer.stepEvaluation(evaluationSteps);
+      evaluationStepBudget -= evaluationSteps;
+    }
+  }
   drawTrainingWorld();
   updateExamMetrics();
   if (realTrainer.steps >= 300 || realTrainer.agents.every(agent => !agent.alive)) {
@@ -563,6 +724,8 @@ function startCandidateEvaluation() {
   $('#continueTrain').classList.add('hidden');
   $('#exam').classList.add('hidden');
   $('#transfer').classList.add('hidden');
+  evaluationStepBudget = 0;
+  evaluationLast = performance.now();
   S.raf = requestAnimationFrame(examFrame);
 }
 

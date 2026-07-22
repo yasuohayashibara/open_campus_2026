@@ -75,3 +75,11 @@ body.evaluation-focus{overflow:auto!important}body.evaluation-focus .train-panel
 
 /* Clarify training-environment complexity */
 .complexity-label{margin-right:6px;color:#ffd166;font-size:10px;font-weight:700;letter-spacing:.03em;white-space:nowrap}.layout-switch button[data-complexity]{min-width:52px;padding:0 8px;font-size:11px}.layout-switch button[data-complexity].layout-on{font-weight:800}
+
+/* Turn each evaluation result into one clear next experiment */
+.evaluation-advice{margin-top:12px;padding:12px 14px;border:1px solid #49f2a588;border-radius:10px;background:#0b2b24;color:#d9fff0;line-height:1.55}.evaluation-advice b{display:block;color:#49f2a5;font-size:11px}.evaluation-advice span{display:block;margin-top:4px;font-size:9px}
+
+/* Persisted experiment history */
+.experiment-log{margin-top:12px;padding:12px 16px}.experiment-log-head{display:flex;align-items:center;justify-content:space-between;padding-bottom:9px;border-bottom:1px solid #203648}.experiment-log-head div{display:flex;flex-direction:column;gap:3px}.experiment-log-head small{color:var(--cyan);font-size:7px;letter-spacing:.12em}.experiment-log-head b{font-size:13px}.experiment-log-head button{border:1px solid #32495a;border-radius:6px;background:#0b1a27;color:#8095a6;padding:6px 9px;font-size:8px}.experiment-log-rows{display:flex;flex-direction:column;gap:5px;margin-top:9px}.experiment-log-row{display:grid;grid-template-columns:72px minmax(190px,1.4fr) minmax(105px,1fr) 52px minmax(120px,.8fr);gap:8px;align-items:center;padding:7px 9px;border:1px solid #203648;border-radius:7px;background:#081722;color:#8297a8;font-size:8px}.experiment-log-row>b{color:#8fa5b5}.experiment-log-row>strong{color:#eef8ff;font-size:13px}.experiment-log-row>small{text-align:right;color:#6f8798}.experiment-log-row.best{border-color:#ffd16688;background:#241f13}.experiment-log-row.best>b{color:#ffd166}
+@media(max-width:699px){.experiment-log-row{grid-template-columns:62px 1fr 50px}.experiment-log-row>span:nth-of-type(2),.experiment-log-row>small{grid-column:2/4}.experiment-log-row>small{text-align:left}}
+.experiment-log-row>b small{display:block;margin-top:2px;color:#49f2a5;font-size:7px}.experiment-log-row.rejected{opacity:.72}.experiment-log-row.rejected>b small{color:#ff9e6f}

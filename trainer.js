@@ -55,13 +55,24 @@ class RealTrainer {
     this.crashes = 0;
     this.bestEver = null;
     this.bestSuccessful = null;
+    this.protectedBrain = null;
     this.population = Array.from({ length: this.populationSize }, () => this.makeBrain());
     this.startGeneration();
   }
 
-  continueEnvironment(obstacles, difficulty = this.difficulty) {
+  continueEnvironment(obstacles, difficulty = this.difficulty, validatedChampion = null) {
     this.obstacles = obstacles;
     this.difficulty = this.difficultyProfiles[difficulty] ? difficulty : 'standard';
+    if (validatedChampion?.weights?.length === this.parameterCount) {
+      this.protectedBrain = { weights: [...validatedChampion.weights], fitness: 0 };
+      const localSigma = 0.08 + this.rewards.speed / 500;
+      const challengers = Array.from({ length: 31 }, () => this.makeBrain(this.protectedBrain, localSigma));
+      this.population = [
+        { weights: [...this.protectedBrain.weights], fitness: 0 },
+        ...challengers,
+        ...this.population.slice(0, this.populationSize - challengers.length - 1)
+      ];
+    }
     this.successes = [];
     this.crashes = 0;
     this.bestEver = null;
@@ -145,7 +156,7 @@ class RealTrainer {
       deploymentScore,
       averageReward: this.agents.reduce((sum, agent) => sum + agent.reward, 0) / this.agents.length,
       breakdown,
-      passed: successes >= 6 && crashes <= 4,
+      passed: successes >= 7 && crashes <= 4,
       path: best ? [...best.path, { x: best.x, y: best.y }] : []
     };
   }
@@ -310,7 +321,13 @@ class RealTrainer {
     const elites = this.population.slice(0, 8);
     const exploration = 0.015 + this.rewards.speed / 70;
     const sigma = Math.max(0.025, exploration * Math.pow(0.982, this.generation));
-    const next = elites.map(elite => ({ weights: [...elite.weights], fitness: 0 }));
+    const next = this.protectedBrain
+      ? [{ weights: [...this.protectedBrain.weights], fitness: 0 }]
+      : [];
+    for (const elite of elites) {
+      if (next.length >= 8) break;
+      next.push({ weights: [...elite.weights], fitness: 0 });
+    }
     while (next.length < this.populationSize) {
       next.push(this.makeBrain(elites[Math.floor(this.random() * elites.length)], sigma));
     }
