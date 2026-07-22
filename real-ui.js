@@ -66,33 +66,41 @@ function drawEvaluationWorld() {
   const cellHeight = sim.height / rows;
   const scale = Math.min((cellWidth - 16) / sim.width, (cellHeight - 34) / sim.height);
 
-  realTrainer.agents.forEach((agent, index) => {
-    const row = Math.floor(index / columns);
-    let column = index % columns;
+  Array.from({ length: 12 }, (_, environmentIndex) => {
+    const agents = realTrainer.agents.filter(agent => agent.environmentIndex === environmentIndex);
+    const representative = agents[0];
+    if (!representative) return;
+    const row = Math.floor(environmentIndex / columns);
+    const column = environmentIndex % columns;
     const cellX = column * cellWidth;
     const cellY = row * cellHeight;
     const fieldWidth = sim.width * scale;
     const fieldHeight = sim.height * scale;
     const offsetX = cellX + (cellWidth - fieldWidth) / 2;
     const offsetY = cellY + 27;
-    const state = evaluationStatus(agent);
+    const successes = agents.filter(agent => agent.reached).length;
+    const crashes = agents.filter(agent => agent.crashed).length;
+    const alive = agents.filter(agent => agent.alive).length;
+    const complete = realTrainer.steps >= 300 || alive === 0;
+    const color = !complete ? '#18d9dc' : successes >= 7 ? '#49f2a5' : successes >= 4 ? '#ffd166' : '#ff5475';
+    const averageReward = agents.reduce((sum, agent) => sum + agent.reward, 0) / agents.length;
 
     ctx.fillStyle = '#07141fee';
     ctx.fillRect(cellX + 5, cellY + 5, cellWidth - 10, cellHeight - 10);
-    ctx.strokeStyle = state.color;
-    ctx.lineWidth = agent.alive ? 1 : 2;
+    ctx.strokeStyle = color;
+    ctx.lineWidth = complete ? 2 : 1;
     ctx.strokeRect(cellX + 5, cellY + 5, cellWidth - 10, cellHeight - 10);
 
     ctx.fillStyle = '#d7e8f2';
     ctx.font = 'bold 11px Inter,sans-serif';
     ctx.textAlign = 'left';
-    ctx.fillText(`E${String(index + 1).padStart(2, '0')}`, cellX + 12, cellY + 20);
-    ctx.fillStyle = state.color;
+    ctx.fillText(`T${String(environmentIndex + 1).padStart(2, '0')}`, cellX + 12, cellY + 20);
+    ctx.fillStyle = color;
     ctx.textAlign = 'center';
-    ctx.fillText(state.label, cellX + cellWidth / 2, cellY + 20);
+    ctx.fillText(complete ? `${successes}/10 GOAL` : `${alive}/10 RUN`, cellX + cellWidth / 2, cellY + 20);
     ctx.fillStyle = '#7890a2';
     ctx.textAlign = 'right';
-    ctx.fillText(`R ${signed(agent.reward)}`, cellX + cellWidth - 12, cellY + 20);
+    ctx.fillText(`C ${crashes} · R ${signed(averageReward)}`, cellX + cellWidth - 12, cellY + 20);
 
     ctx.save();
     ctx.beginPath();
@@ -107,7 +115,7 @@ function drawEvaluationWorld() {
     ctx.lineWidth = 3 / scale;
     ctx.strokeRect(35, 30, 830, 460);
 
-    const obstacles = agent.obstacles || [];
+    const obstacles = representative.obstacles || [];
     for (const obstacle of obstacles) {
       ctx.beginPath();
       ctx.arc(obstacle.x, obstacle.y, obstacle.r, 0, Math.PI * 2);
@@ -126,29 +134,29 @@ function drawEvaluationWorld() {
     ctx.lineWidth = 2 / scale;
     ctx.stroke();
 
-    if (agent.path.length > 1) {
-      ctx.beginPath();
-      agent.path.forEach((point, pointIndex) => ctx[pointIndex ? 'lineTo' : 'moveTo'](point.x, point.y));
-      ctx.strokeStyle = state.color;
-      ctx.lineWidth = 2 / scale;
-      ctx.stroke();
+    for (const agent of agents) {
+      if (agent.path.length > 1) {
+        ctx.beginPath();
+        agent.path.forEach((point, pointIndex) => ctx[pointIndex ? 'lineTo' : 'moveTo'](point.x, point.y));
+        ctx.strokeStyle = agent.reached ? '#49f2a566' : agent.crashed ? '#ff547544' : '#18d9dc44';
+        ctx.lineWidth = 1.4 / scale;
+        ctx.stroke();
+      }
+      const state = evaluationStatus(agent);
+      ctx.save();
+      ctx.translate(agent.x, agent.y);
+      ctx.rotate(agent.angle);
+      ctx.fillStyle = state.color;
+      ctx.fillRect(-7, -5, 14, 10);
+      ctx.restore();
     }
-
-    ctx.save();
-    ctx.translate(agent.x, agent.y);
-    ctx.rotate(agent.angle);
-    ctx.fillStyle = state.color;
-    ctx.fillRect(-10, -7, 20, 14);
-    ctx.fillStyle = '#06111c';
-    ctx.fillRect(1, -3, 8, 6);
-    ctx.restore();
     ctx.restore();
   });
 
   ctx.fillStyle = '#71899b';
   ctx.font = '10px Inter,sans-serif';
   ctx.textAlign = 'center';
-  ctx.fillText('12 ENVIRONMENTS · SAME POLICY · NO LEARNING', sim.width / 2, sim.height - 7);
+  ctx.fillText('12 ENVIRONMENTS × 10 START ANGLES · 120 TRIALS · NO LEARNING', sim.width / 2, sim.height - 7);
 }
 function drawTrainingWorld() {
   grid();
@@ -305,6 +313,7 @@ function recordExperiment(snapshot, accepted) {
     environments: environments.length ? environments : [snapshot.environmentId || 'E05'],
     successes: result.successes,
     crashes: result.crashes,
+    environmentResults: result.environmentResults || [],
     averageReward: Math.round(result.averageReward),
     deploymentScore: Math.round(result.deploymentScore),
     passed: result.passed,
@@ -347,7 +356,7 @@ function renderExperimentLog() {
       'goal-first': 'ゴールを優先',
       neutral: '要比較'
     }[item.rewardLesson] || '';
-    return `<div class="experiment-log-row ${item.id === best.id ? 'best' : ''} ${item.accepted === false ? 'rejected' : ''} ${item.rewardLesson === 'trap' ? 'reward-trap' : ''}"><b>#${trialNumber}${item.id === best.id ? ' BEST' : ''}<small>${decision}</small></b><span>${settings}</span><span>${route}・${Number(item.trainingSeconds) || 0}秒・${Number(item.generation) || 0}世代</span><strong>${Number(item.successes) || 0}/12</strong><small>衝突 ${Number(item.crashes) || 0}・AI点 ${Number(item.averageReward) || 0}${lessonLabel ? `・${lessonLabel}` : ''}</small></div>`;
+    return `<div class="experiment-log-row ${item.id === best.id ? 'best' : ''} ${item.accepted === false ? 'rejected' : ''} ${item.rewardLesson === 'trap' ? 'reward-trap' : ''}"><b>#${trialNumber}${item.id === best.id ? ' BEST' : ''}<small>${decision}</small></b><span>${settings}</span><span>${route}・${Number(item.trainingSeconds) || 0}秒・${Number(item.generation) || 0}世代</span><strong>${Number(item.successes) || 0}/120</strong><small>衝突 ${Number(item.crashes) || 0}・AI点 ${Number(item.averageReward) || 0}${lessonLabel ? `・${lessonLabel}` : ''}</small></div>`;
   }).join('');
 }
 
@@ -444,8 +453,9 @@ function evaluationMarkup(snapshot, isChampion = false) {
   }).join('');
   return `
     <div class="parameter-showcase"><b>選んだパラメータ</b><div><span><small>探索</small><strong>${stages[settings.speed]}</strong></span><span><small>接近</small><strong>${stages[settings.safety]}</strong></span><span><small>ゴール</small><strong>${stages[settings.goal]}</strong></span><span><small>衝突罰</small><strong>${stages[settings.crash]}</strong></span></div></div>
-    <div class="evaluation-score"><b>${result.successes}<small><span>/12</span> GOAL</small></b><strong class="${result.passed ? 'pass' : 'retry'}">${result.passed ? '実機候補' : '要改善'}<small>評価判定</small></strong></div>
-    <div class="evaluation-facts"><span>学習時間 <b>${snapshot.trainingSeconds || 0}秒</b></span><span>走行・学習環境 <b>${difficulty}・${environmentLabel}</b></span><span>本番テストの衝突 <b>${result.crashes}/12</b></span><span>AIが集めた点数 <b>${signed(result.averageReward)}</b></span></div>
+    <div class="evaluation-score"><b>${result.successRate}%<small><span>${result.successes}/120</span> GOAL</small></b><strong class="${result.passed ? 'pass' : 'retry'}">${result.passed ? '実機候補' : '要改善'}<small>評価判定</small></strong></div>
+    <div class="evaluation-facts"><span>学習時間 <b>${snapshot.trainingSeconds || 0}秒</b></span><span>走行・学習環境 <b>${difficulty}・${environmentLabel}</b></span><span>本番テストの衝突 <b>${result.crashes}/120</b></span><span>AIが集めた点数 <b>${signed(result.averageReward)}</b></span></div>
+    <div class="environment-results">${(result.environmentResults || []).map(item => `<span class="${item.successes >= 7 ? 'stable' : item.successes >= 4 ? 'mixed' : 'weak'}"><b>T${String(item.environmentIndex + 1).padStart(2, '0')}</b><strong>${item.successes}/10</strong></span>`).join('')}</div>
     <details class="reward-details"><summary>学習用の点数の内訳を見る</summary><div class="reward-breakdown">${rows}</div></details>
     ${isChampion ? '<em class="champion-badge">実機へ転送するモデル</em>' : ''}`;
 }
@@ -456,7 +466,8 @@ function evaluationAdvice(snapshot, retainedPrevious = false) {
   const seconds = snapshot.trainingSeconds || 0;
   const environmentDifficulty = snapshot.environmentDifficulty || 'balanced';
   const allStrong = Object.values(rewards).every(value => value === 100);
-  const rewardMismatch = result.averageReward >= 900 && result.successes <= 4;
+  const crashRate = result.attempts ? result.crashes / result.attempts * 100 : 0;
+  const rewardMismatch = result.averageReward >= 900 && result.successRate <= 33;
   if (retainedPrevious) {
     return '<b>今回の更新は見送りました</b><span>固定12環境で成績が下がったため、能力は上書きせず、次の追加学習を歴代ベストから再開します。</span>';
   }
@@ -478,28 +489,28 @@ function evaluationAdvice(snapshot, retainedPrevious = false) {
   } else if (allStrong) {
     title = '全部「強」でも成功は増えません';
     action = '探索を弱、衝突罰を中へ下げて再学習してください。強い報酬同士の競合を減らせます。';
-  } else if (seconds <= 10 && result.successes >= 3 && rewards.speed <= 35 && rewards.safety === 100 && rewards.goal === 100) {
+  } else if (seconds <= 10 && result.successRate >= 25 && rewards.speed <= 35 && rewards.safety === 100 && rewards.goal === 100) {
     title = '複雑な環境で伸びる準備ができています';
     action = '「むずかしい」環境で10秒追加し、回避の経験を増やしてください。';
-  } else if (seconds <= 10 && result.successes >= 3) {
+  } else if (seconds <= 10 && result.successRate >= 25) {
     title = '成功の芽があります';
-    action = 'まず同じ環境で10秒追加してください。7/12へ届くか、時間の効果を確認できます。';
-  } else if (result.crashes >= 6 && rewards.crash === 100) {
+    action = 'まず同じ環境で10秒追加してください。70/120へ届くか、時間の効果を確認できます。';
+  } else if (crashRate >= 50 && rewards.crash === 100) {
     title = '衝突罰が強すぎる可能性があります';
     action = '衝突罰を中へ戻し、探索も強すぎない設定で再学習してください。';
-  } else if (result.crashes >= 6 && rewards.crash < 70) {
+  } else if (crashRate >= 50 && rewards.crash < 70) {
     title = '衝突から学ぶ手掛かりが不足しています';
     action = '衝突罰を1段階上げて再学習してください。';
-  } else if (result.successes <= 2 && rewards.safety < 70) {
+  } else if (result.successRate <= 17 && rewards.safety < 70) {
     title = 'ゴールへ近づく手掛かりが不足しています';
     action = '接近報酬を中へ上げ、ほかは変えずに再学習してください。';
-  } else if (result.successes <= 2 && rewards.goal < 70) {
+  } else if (result.successRate <= 17 && rewards.goal < 70) {
     title = '最後まで到達する理由が不足しています';
     action = 'ゴール報酬を中へ上げ、ほかは変えずに再学習してください。';
-  } else if (seconds >= 30 && result.successes <= 3) {
+  } else if (seconds >= 30 && result.successRate <= 25) {
     title = '学習時間より報酬を見直す段階です';
     action = '追加学習を続けず、探索・接近・ゴール・衝突罰のうち1項目だけ変えて比較してください。';
-  } else if (result.successes >= 4 && result.crashes >= 5) {
+  } else if (result.successRate >= 33 && crashRate >= 42) {
     title = '到達できますが、回避が不安定です';
     action = '「ほどよい」環境で10秒追加するか、衝突罰を1段階変えて回避の変化を比べてください。';
   } else {
@@ -721,10 +732,10 @@ function updateExamMetrics() {
   const crashes = realTrainer.agents.filter(agent => agent.crashed).length;
   const progress = Math.min(1, realTrainer.steps / 300);
   $('#count').textContent = ((300 - realTrainer.steps) / EVALUATION_STEPS_PER_SECOND).toFixed(1);
-  $('#success').textContent = `${successes} / 12`;
+  $('#success').textContent = `${successes} / 120`;
   $('#crashes').textContent = String(crashes);
   $('#ring').style.background = `conic-gradient(var(--cyan) ${progress * 100}%,#1b3243 0)`;
-  $('#log').textContent = `固定12環境を評価中：成功 ${successes} ／ 走行中 ${alive}`;
+  $('#log').textContent = `12環境×10角度を評価中：成功 ${successes} ／ 走行中 ${alive}`;
   $('#intelStage').textContent = '報酬を固定して汎化性能を測定';
 }
 
@@ -746,7 +757,7 @@ function finishCandidateEvaluation() {
   renderEvaluationComparison(current, previousBest, isNewBest, acceptedInRun);
   document.body.classList.add('evaluation-focus');
   $('#evaluationPanel').scrollIntoView({ behavior: 'smooth', block: 'start' });
-  $('#success').textContent = `${result.successes} / 12`;
+  $('#success').textContent = `${result.successes} / 120`;
   $('#crashes').textContent = String(result.crashes);
   $('#trainingState').textContent = '12環境の評価完了';
   $('#continueTrain').classList.remove('hidden');
@@ -762,14 +773,14 @@ function finishCandidateEvaluation() {
       difficulty: historicalBest.difficulty,
       evaluations: historicalBest.evaluations
     };
-    $('#btype').textContent = `BEST MODEL · ${historicalBest.evaluation.successes}/12`;
+    $('#btype').textContent = `BEST MODEL · ${historicalBest.evaluation.successRate}%`;
     $('#transfer').classList.remove('hidden');
     S.step = 3;
   } else {
     window.trainedPolicy = null;
     $('#transfer').classList.add('hidden');
   }
-  $('#log').textContent = `12環境：成功 ${result.successes}・衝突 ${result.crashes}・実機適性 ${Math.round(result.deploymentScore)}`;
+  $('#log').textContent = `120試行：成功 ${result.successes}・衝突 ${result.crashes}・実機適性 ${Math.round(result.deploymentScore)}`;
   toast(isNewBest ? '歴代ベストを更新しました' : '評価完了。実機には歴代ベストを転送します');
 }
 

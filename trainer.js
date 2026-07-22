@@ -109,12 +109,17 @@ class RealTrainer {
     this.obstacles = scenarios[0].obstacles;
     this.steps = 0;
     this.evaluationFinalized = false;
-    this.agents = scenarios.map((scenario, index) => this.makeAgent(brain, index, {
+    this.agents = scenarios.map((scenario, index) => {
+      const agent = this.makeAgent(brain, index, {
       x: this.start.x + scenario.xOffset,
       y: this.start.y + scenario.yOffset,
       angle: this.start.angle + scenario.angleOffset,
       obstacles: scenario.obstacles
-    }));
+      });
+      agent.environmentIndex = scenario.environmentIndex ?? index;
+      agent.variationIndex = scenario.variationIndex ?? 0;
+      return agent;
+    });
   }
 
   stepEvaluation(iterations = 1) {
@@ -145,18 +150,34 @@ class RealTrainer {
     const averageTime = this.agents.reduce((sum, agent) => sum + agent.finishedStep / 30, 0) / this.agents.length;
     const clearances = this.agents.map(agent => Number.isFinite(agent.minClearance) ? agent.minClearance : 380);
     const averageClearance = clearances.reduce((sum, value) => sum + value, 0) / clearances.length;
-    const deploymentScore = successes * 10 - crashes * 3 - Math.max(0, averageTime - 6) + Math.min(5, averageClearance / 30);
+    const attempts = this.agents.length;
+    const normalizedSuccesses = successes / attempts * 12;
+    const normalizedCrashes = crashes / attempts * 12;
+    const environmentResults = Array.from({ length: 12 }, (_, environmentIndex) => {
+      const agents = this.agents.filter(agent => agent.environmentIndex === environmentIndex);
+      const environmentSuccesses = agents.filter(agent => agent.reached).length;
+      const environmentCrashes = agents.filter(agent => agent.crashed).length;
+      return {
+        environmentIndex,
+        attempts: agents.length,
+        successes: environmentSuccesses,
+        crashes: environmentCrashes,
+        successRate: agents.length ? Math.round(environmentSuccesses / agents.length * 100) : 0
+      };
+    });
+    const deploymentScore = normalizedSuccesses * 10 - normalizedCrashes * 3 - Math.max(0, averageTime - 6) + Math.min(5, averageClearance / 30);
     return {
-      attempts: this.agents.length,
+      attempts,
       successes,
       crashes,
-      successRate: Math.round(successes / this.agents.length * 100),
+      successRate: Math.round(successes / attempts * 100),
       averageTime,
       averageClearance,
       deploymentScore,
       averageReward: this.agents.reduce((sum, agent) => sum + agent.reward, 0) / this.agents.length,
       breakdown,
-      passed: successes >= 7 && crashes <= 4,
+      passed: successes >= 70 && crashes <= 40,
+      environmentResults,
       path: best ? [...best.path, { x: best.x, y: best.y }] : []
     };
   }
