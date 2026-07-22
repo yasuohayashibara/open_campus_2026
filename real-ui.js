@@ -772,12 +772,12 @@ function finishCandidateEvaluation() {
   $('#trainingDescription').textContent = '120回の結果を見て、次の行動を1つ選びましょう。';
   $('#continueTrain').classList.remove('hidden');
 
-  if (historicalBest && historicalBest.evaluation.passed) {
+  if (historicalBest) {
     window.trainedPolicy = {
       weights: [...historicalBest.weights],
       fitness: historicalBest.fitness,
-      successful: true,
-      examPassed: true,
+      successful: historicalBest.evaluation.passed,
+      examPassed: historicalBest.evaluation.passed,
       evaluation: historicalBest.evaluation,
       rewards: historicalBest.rewards,
       difficulty: historicalBest.difficulty,
@@ -786,9 +786,6 @@ function finishCandidateEvaluation() {
     $('#btype').textContent = `BEST MODEL · ${historicalBest.evaluation.successRate}%`;
     $('#transfer').classList.remove('hidden');
     S.step = 3;
-  } else {
-    window.trainedPolicy = null;
-    $('#transfer').classList.add('hidden');
   }
   $('#log').textContent = `120試行：成功 ${result.successes}・衝突 ${result.crashes}・実機適性 ${Math.round(result.deploymentScore)}`;
   toast(isNewBest ? '歴代ベストを更新しました' : '評価完了。実機には歴代ベストを転送します');
