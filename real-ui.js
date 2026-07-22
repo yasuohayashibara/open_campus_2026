@@ -293,12 +293,12 @@ let historicalBest = null;
 let accumulatedTrainingSeconds = 0;
 let currentRunBest = null;
 let experimentLog = [];
+let retainNetworkForNextTraining = false;
 try { localStorage.removeItem('rl-lab-experiment-log-v1'); } catch (_) {}
 
 function recordExperiment(snapshot, accepted) {
   const result = snapshot.evaluation;
-  const environments = trainingHistory.map(item => item.environmentId || item.environment).filter(Boolean);
-  const previous = experimentLog[experimentLog.length - 1];
+  const previous = [...experimentLog].reverse().find(item => item.type !== 'reset');
   const lesson = rewardLesson(result, previous ? {
     successes: previous.successes,
     averageReward: previous.averageReward
@@ -310,7 +310,7 @@ function recordExperiment(snapshot, accepted) {
     difficulty: snapshot.difficulty,
     trainingSeconds: snapshot.trainingSeconds || 0,
     generation: snapshot.generation || 0,
-    environments: environments.length ? environments : [snapshot.environmentId || 'E05'],
+    environment: snapshot.environmentId || trainingHistory[trainingHistory.length - 1]?.environmentId || 'E05',
     successes: result.successes,
     crashes: result.crashes,
     environmentResults: result.environmentResults || [],
@@ -329,6 +329,22 @@ function recordExperiment(snapshot, accepted) {
   renderExperimentLog();
 }
 
+function recordTrainingReset() {
+  const item = {
+    id: Date.now() + experimentLog.length,
+    createdAt: Date.now(),
+    type: 'reset'
+  };
+  experimentLog.push(item);
+  experimentLog = experimentLog.slice(-50);
+  fetch('/experiment-log', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(item)
+  }).catch(() => {});
+  renderExperimentLog();
+}
+
 function renderExperimentLog() {
   const panel = $('#experimentLogPanel');
   const rows = $('#experimentLogRows');
@@ -339,15 +355,23 @@ function renderExperimentLog() {
     return;
   }
   const stages = { 0: '無', 35: '弱', 70: '中', 100: '強' };
-  const best = experimentLog.reduce((champion, item) => {
+  const best = experimentLog.filter(item => item.type !== 'reset').reduce((champion, item) => {
     if (!champion || (item.passed && !champion.passed)) return item;
     if (item.passed === champion.passed && item.deploymentScore > champion.deploymentScore) return item;
     return champion;
   }, null);
+  let evaluationNumber = 0;
+  const evaluationNumbers = new Map(experimentLog.filter(item => item.type !== 'reset').map(item => {
+    evaluationNumber++;
+    return [item.id, evaluationNumber];
+  }));
   rows.innerHTML = [...experimentLog].reverse().slice(0, 12).map((item, index) => {
+    if (item.type === 'reset') {
+      return '<div class="experiment-log-row reset"><b>RESET</b><span>現在の学習ネットワークを消去</span><span>歴代ベスト・試行ログは保持</span><strong>—</strong><small>新しい個体群で開始</small></div>';
+    }
     const rewards = item.rewards || {};
-    const trialNumber = experimentLog.length - index;
-    const route = (item.environments || ['E05']).join('→');
+    const trialNumber = evaluationNumbers.get(item.id);
+    const environment = item.environment || (item.environments || ['E05']).slice(-1)[0];
     const settings = `探${stages[rewards.speed] || '?'} 接${stages[rewards.safety] || '?'} ゴ${stages[rewards.goal] || '?'} 衝${stages[rewards.crash] || '?'}`;
     const decision = item.accepted === false ? '見送り' : '採用';
     const lessonLabel = {
@@ -356,12 +380,12 @@ function renderExperimentLog() {
       'goal-first': 'ゴールを優先',
       neutral: '要比較'
     }[item.rewardLesson] || '';
-    return `<div class="experiment-log-row ${item.id === best.id ? 'best' : ''} ${item.accepted === false ? 'rejected' : ''} ${item.rewardLesson === 'trap' ? 'reward-trap' : ''}"><b>#${trialNumber}${item.id === best.id ? ' BEST' : ''}<small>${decision}</small></b><span>${settings}</span><span>${route}・${Number(item.trainingSeconds) || 0}秒・${Number(item.generation) || 0}世代</span><strong>${Number(item.successes) || 0}/120</strong><small>衝突 ${Number(item.crashes) || 0}・AI点 ${Number(item.averageReward) || 0}${lessonLabel ? `・${lessonLabel}` : ''}</small></div>`;
+    return `<div class="experiment-log-row ${item.id === best?.id ? 'best' : ''} ${item.accepted === false ? 'rejected' : ''} ${item.rewardLesson === 'trap' ? 'reward-trap' : ''}"><b>#${trialNumber}${item.id === best?.id ? ' BEST' : ''}<small>${decision}</small></b><span>${settings}</span><span>${environment}・${Number(item.trainingSeconds) || 0}秒・${Number(item.generation) || 0}世代</span><strong>${Number(item.successes) || 0}/120</strong><small>衝突 ${Number(item.crashes) || 0}・AI点 ${Number(item.averageReward) || 0}${lessonLabel ? `・${lessonLabel}` : ''}</small></div>`;
   }).join('');
 }
 
 $('#clearExperimentLog').onclick = () => {
-  if (!confirm('このページの試行ログをすべて消去しますか？')) return;
+  if (!confirm('画面に表示している試行ログだけを消去しますか？\nサーバーへ保存済みの記録と学習済みネットワークは消えません。')) return;
   experimentLog = [];
   renderExperimentLog();
 };
@@ -453,7 +477,7 @@ function evaluationMarkup(snapshot, isChampion = false) {
   }).join('');
   return `
     <div class="parameter-showcase"><b>選んだパラメータ</b><div><span><small>探索</small><strong>${stages[settings.speed]}</strong></span><span><small>接近</small><strong>${stages[settings.safety]}</strong></span><span><small>ゴール</small><strong>${stages[settings.goal]}</strong></span><span><small>衝突罰</small><strong>${stages[settings.crash]}</strong></span></div></div>
-    <div class="evaluation-score"><b>${result.successRate}%<small><span>${result.successes}/120</span> GOAL</small></b><strong class="${result.passed ? 'pass' : 'retry'}">${result.passed ? '実機候補' : '要改善'}<small>評価判定</small></strong></div>
+    <div class="evaluation-score"><b>${result.successRate}%<small><span>${result.successes}/120</span> GOAL</small></b><strong class="${result.passed ? 'pass' : 'retry'}">${result.passed ? '基準達成' : '基準未達'}<small>${result.passed ? '評価基準を満たしました' : '転送して観察できます'}</small></strong></div>
     <div class="evaluation-facts"><span>学習時間 <b>${snapshot.trainingSeconds || 0}秒</b></span><span>走行・学習環境 <b>${difficulty}・${environmentLabel}</b></span><span>本番テストの衝突 <b>${result.crashes}/120</b></span><span>AIが集めた点数 <b>${signed(result.averageReward)}</b></span></div>
     <div class="environment-results">${(result.environmentResults || []).map(item => `<span class="${item.successes >= 7 ? 'stable' : item.successes >= 4 ? 'mixed' : 'weak'}"><b>T${String(item.environmentIndex + 1).padStart(2, '0')}</b><strong>${item.successes}/10</strong></span>`).join('')}</div>
     <details class="reward-details"><summary>学習用の点数の内訳を見る</summary><div class="reward-breakdown">${rows}</div></details>
@@ -483,7 +507,7 @@ function evaluationAdvice(snapshot, retainedPrevious = false) {
       title = '複雑な環境でも合格です';
       action = '「むずかしい」環境を選んで10秒追加し、さらに未知の配置へ強くなるか試してください。';
     } else {
-      title = '実機候補になる汎化性能です';
+      title = '評価基準を達成する汎化性能です';
       action = '歴代ベストと報酬を比べ、隣の強さへ1項目だけ変えると効果を確認できます。';
     }
   } else if (allStrong) {
@@ -523,12 +547,12 @@ function evaluationAdvice(snapshot, retainedPrevious = false) {
 }
 
 function renderEvaluationComparison(current, previousBest, isNewBest, acceptedInRun) {
-  const comparison = previousBest || current;
   $('#evaluationPanel').classList.remove('hidden');
   $('#currentEvaluation').innerHTML = evaluationMarkup(current, isNewBest);
-  $('#evaluationAdvice').innerHTML = evaluationAdvice(current, !acceptedInRun);
   const stages = { 0: '無', 35: '弱', 70: '中', 100: '強' };
-  $('#bestEvaluation').innerHTML = evaluationMarkup(comparison, !isNewBest && comparison === historicalBest);
+  $('#bestEvaluation').innerHTML = previousBest
+    ? evaluationMarkup(previousBest, !isNewBest && previousBest === historicalBest)
+    : '<p class="empty-evaluation"><b>初回のため比較対象はまだありません</b><br>今回の結果を最初の基準として登録します。</p>';
   const rewardNames = { speed: '探索幅', safety: '接近報酬', goal: 'ゴール報酬', crash: '衝突罰' };
   const lesson = rewardLesson(current.evaluation, previousBest?.evaluation || null);
   $('#rewardLesson').className = `reward-lesson ${lesson.type}`;
@@ -663,12 +687,20 @@ function realFrame(now) {
 
 function startRealTraining() {
   document.body.classList.remove('evaluation-focus');
-  accumulatedTrainingSeconds = 0;
-  currentRunBest = null;
-  trainingHistory.length = 0;
+  const retainedChampion = retainNetworkForNextTraining && (currentRunBest || trainingCandidate);
+  retainNetworkForNextTraining = false;
+  document.body.classList.remove('network-retained');
+  if (!retainedChampion) {
+    accumulatedTrainingSeconds = 0;
+    currentRunBest = null;
+    trainingHistory.length = 0;
+  }
   baselineObservation = false;
   $('#baselineResult').classList.add('hidden');
   $('#baselineContinue').classList.add('hidden');
+  $('#evaluationPanel').classList.add('hidden');
+  $('#experimentLogPanel').classList.add('hidden');
+  $('#changeParameters').classList.add('hidden');
   cancelAnimationFrame(S.raf);
   window.trainedPolicy = null;
   trainingCandidate = null;
@@ -685,19 +717,29 @@ function startRealTraining() {
   $('#transfer').classList.add('hidden');
   $('#exam').classList.add('hidden');
   $('#continueTrain').classList.add('hidden');
-  realTrainer.reset(obs, { speed: S.speed, safety: S.safety, goal: S.goal, crash: S.crash }, S.difficulty);
+  const activeRewards = { speed: S.speed, safety: S.safety, goal: S.goal, crash: S.crash };
+  if (retainedChampion) {
+    realTrainer.continueEnvironment(obs, S.difficulty, retainedChampion, activeRewards);
+  } else {
+    realTrainer.reset(obs, activeRewards, S.difficulty);
+  }
   trainingStepBudget = 0;
   trainingRunSteps = 0;
   activeTrainingStepsPerSecond = TRAINING_STEPS_PER_SECOND.initial;
   realLast = performance.now();
+  toast(retainedChampion
+    ? '学習済みネットワークを保持して、新しい報酬と環境で追加学習します'
+    : '新しいネットワークで学習を開始します');
   S.raf = requestAnimationFrame(realFrame);
 }
 
 function resetAllTraining() {
-  historicalBest = null;
+  if (!confirm('現在の学習ネットワークを消去し、新しい個体群で10秒学習しますか？\n\n歴代ベストと試行ログは消えません。')) return;
+  recordTrainingReset();
+  retainNetworkForNextTraining = false;
   trainingHistory.length = 0;
   $('#evaluationPanel').classList.add('hidden');
-  startRealTraining();
+  go(2);
 }
 
 startTraining = startRealTraining;
@@ -707,11 +749,15 @@ function continueRealTraining() {
   document.body.classList.remove('evaluation-focus');
   cancelAnimationFrame(S.raf);
   window.trainedPolicy = null;
+  $('#evaluationPanel').classList.add('hidden');
+  $('#experimentLogPanel').classList.add('hidden');
+  $('#changeParameters').classList.add('hidden');
   const latestCandidate = trainingCandidate;
   const validatedChampion = currentRunBest || latestCandidate;
   trainingCandidate = null;
   prepareTrainingEnvironment();
-  realTrainer.continueEnvironment(obs, S.difficulty, validatedChampion);
+  realTrainer.continueEnvironment(obs, S.difficulty, validatedChampion,
+    { speed: S.speed, safety: S.safety, goal: S.goal, crash: S.crash });
   S.elapsed = 0;
   realDuration = 10;
   S.paused = false;
@@ -771,6 +817,8 @@ function finishCandidateEvaluation() {
   $('#trainingTitle').textContent = '本番テストの結果';
   $('#trainingDescription').textContent = '120回の結果を見て、次の行動を1つ選びましょう。';
   $('#continueTrain').classList.remove('hidden');
+  $('#changeParameters').classList.remove('hidden');
+  $('#retry').classList.remove('hidden');
 
   if (historicalBest) {
     window.trainedPolicy = {
@@ -823,6 +871,7 @@ function startCandidateEvaluation() {
   $('#trainingDescription').textContent = '12環境を開始角度10通りで公平に比べています。';
   $('#pause').textContent = 'Ⅱ';
   $('#continueTrain').classList.add('hidden');
+  $('#changeParameters').classList.add('hidden');
   $('#exam').classList.add('hidden');
   $('#transfer').classList.add('hidden');
   evaluationStepBudget = 0;
@@ -833,10 +882,15 @@ function startCandidateEvaluation() {
 $('#continueTrain').onclick = continueRealTraining;
 $('#exam').onclick = startCandidateEvaluation;
 
-$("#backDesign").onclick = () => {
-  document.body.classList.remove('evaluation-focus');
-  cancelAnimationFrame(S.raf);
-  go(1);
-};
+function prepareParameterEdit() {
+  retainNetworkForNextTraining = Boolean(currentRunBest || trainingCandidate);
+  document.body.classList.toggle('network-retained', retainNetworkForNextTraining);
+  if (retainNetworkForNextTraining) {
+    $('#train').textContent = '学習済みネットワークを引き継いで＋10秒学習　→';
+  } else {
+    selectTrainingEnvironment(S.environmentId, true);
+  }
+}
+window.prepareParameterEdit = prepareParameterEdit;
 
 window.realTrainer = realTrainer;
