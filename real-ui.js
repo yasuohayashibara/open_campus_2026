@@ -622,7 +622,6 @@ function finishNoRewardObservation() {
 }
 
 function skipNoRewardTutorial() {
-  if (!confirm('運営・動作確認用の操作です。\n報酬なしの観察をスキップして、報酬設計へ進みますか？')) return;
   cancelAnimationFrame(S.raf);
   baselineObservation = false;
   S.paused = true;
@@ -678,6 +677,9 @@ function startRealTraining() {
   S.elapsed = 0;
   realDuration = 10;
   $('#trainingState').textContent = '学習中';
+  $('#trainingEyebrow').textContent = 'STEP 02 — TRAINING';
+  $('#trainingTitle').textContent = 'AIが試行錯誤しています';
+  $('#trainingDescription').textContent = '選んだ報酬と環境で、成功する動きを探しています。';
   S.paused = false;
   $('#pause').textContent = 'Ⅱ';
   $('#transfer').classList.add('hidden');
@@ -715,6 +717,9 @@ function continueRealTraining() {
   S.paused = false;
   $('#pause').textContent = 'Ⅱ';
   $('#trainingState').textContent = '学習中';
+  $('#trainingEyebrow').textContent = 'STEP 02 — ADDITIONAL TRAINING';
+  $('#trainingTitle').textContent = '選んだ環境で追加学習中';
+  $('#trainingDescription').textContent = '前回までの学習を残して、もう10秒だけ試します。';
   $('#continueTrain').classList.add('hidden');
   $('#exam').classList.add('hidden');
   $('#transfer').classList.add('hidden');
@@ -756,10 +761,15 @@ function finishCandidateEvaluation() {
   recordExperiment(current, acceptedInRun);
   renderEvaluationComparison(current, previousBest, isNewBest, acceptedInRun);
   document.body.classList.add('evaluation-focus');
-  $('#evaluationPanel').scrollIntoView({ behavior: 'smooth', block: 'start' });
+  if (!matchMedia('(min-width:700px) and (max-width:1366px) and (max-height:1024px) and (orientation:landscape)').matches) {
+    $('#evaluationPanel').scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
   $('#success').textContent = `${result.successes} / 120`;
   $('#crashes').textContent = String(result.crashes);
   $('#trainingState').textContent = '12環境の評価完了';
+  $('#trainingEyebrow').textContent = 'STEP 02 — RESULT';
+  $('#trainingTitle').textContent = '本番テストの結果';
+  $('#trainingDescription').textContent = '120回の結果を見て、次の行動を1つ選びましょう。';
   $('#continueTrain').classList.remove('hidden');
 
   if (historicalBest && historicalBest.evaluation.passed) {
@@ -811,6 +821,9 @@ function startCandidateEvaluation() {
   realTrainer.startEvaluation(trainingCandidate, suite);
   S.paused = false;
   $('#trainingState').textContent = '評価中（学習なし）';
+  $('#trainingEyebrow').textContent = 'STEP 02 — FINAL TEST';
+  $('#trainingTitle').textContent = '未知の環境で本番テスト中';
+  $('#trainingDescription').textContent = '12環境を開始角度10通りで公平に比べています。';
   $('#pause').textContent = 'Ⅱ';
   $('#continueTrain').classList.add('hidden');
   $('#exam').classList.add('hidden');
