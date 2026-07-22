@@ -1,11 +1,12 @@
 /* Connects the real evolutionary trainer to the existing workshop UI. */
 const realTrainer = new RealTrainer();
 let realLast = 0;
-let realDuration = 15;
+let realDuration = 10;
 let trainingStepBudget = 0;
+let trainingRunSteps = 0;
 let evaluationLast = 0;
 let evaluationStepBudget = 0;
-const TRAINING_STEPS_PER_SECOND = { initial: 80, additional: 360 };
+const TRAINING_STEPS_PER_SECOND = { initial: 120, additional: 120 };
 let activeTrainingStepsPerSecond = TRAINING_STEPS_PER_SECOND.initial;
 const EVALUATION_STEPS_PER_SECOND = 60;
 
@@ -288,7 +289,7 @@ try { localStorage.removeItem('rl-lab-experiment-log-v1'); } catch (_) {}
 
 function recordExperiment(snapshot, accepted) {
   const result = snapshot.evaluation;
-  const environments = trainingHistory.map(item => item.environment.match(/障害物 (\d+)個/)?.[1]).filter(Boolean);
+  const environments = trainingHistory.map(item => item.environmentId || item.environment).filter(Boolean);
   const previous = experimentLog[experimentLog.length - 1];
   const lesson = rewardLesson(result, previous ? {
     successes: previous.successes,
@@ -301,7 +302,7 @@ function recordExperiment(snapshot, accepted) {
     difficulty: snapshot.difficulty,
     trainingSeconds: snapshot.trainingSeconds || 0,
     generation: snapshot.generation || 0,
-    environments: environments.length ? environments : ['2'],
+    environments: environments.length ? environments : [snapshot.environmentId || 'E05'],
     successes: result.successes,
     crashes: result.crashes,
     averageReward: Math.round(result.averageReward),
@@ -337,7 +338,7 @@ function renderExperimentLog() {
   rows.innerHTML = [...experimentLog].reverse().slice(0, 12).map((item, index) => {
     const rewards = item.rewards || {};
     const trialNumber = experimentLog.length - index;
-    const route = (item.environments || ['2']).map(value => `${Number(value) || 2}個`).join('→');
+    const route = (item.environments || ['E05']).join('→');
     const settings = `探${stages[rewards.speed] || '?'} 接${stages[rewards.safety] || '?'} ゴ${stages[rewards.goal] || '?'} 衝${stages[rewards.crash] || '?'}`;
     const decision = item.accepted === false ? '見送り' : '採用';
     const lessonLabel = {
@@ -368,6 +369,8 @@ function candidateFromTraining() {
     rewards: { speed: S.speed, safety: S.safety, goal: S.goal, crash: S.crash },
     difficulty: S.difficulty,
     environment: currentLayout,
+    environmentId: S.environmentId,
+    environmentDifficulty: selectedTrainingEnvironment().rank,
     generation: realTrainer.generation,
     evaluations: realTrainer.evaluations,
     trainingSeconds: accumulatedTrainingSeconds
@@ -434,7 +437,7 @@ function evaluationMarkup(snapshot, isChampion = false) {
   const settings = snapshot.rewards;
   const stages = { 0: '無', 35: '弱', 70: '中', 100: '強' };
   const difficulty = { easy: '初級', standard: '中級', challenge: '上級' }[snapshot.difficulty] || '中級';
-  const obstacleCount = (snapshot.environment || '').match(/障害物 (\d+)個/)?.[1] || '2';
+  const environmentLabel = snapshot.environment || snapshot.environmentId || 'E05';
   const rows = groupedBreakdown(result).map(([label, value]) => {
     const width = Math.min(100, Math.abs(value) / 3.5);
     return `<div class="reward-row"><span>${label}</span><i class="${value >= 0 ? 'positive' : 'negative'}" style="--value:${width}%"></i><b>${signed(value)}</b></div>`;
@@ -442,7 +445,7 @@ function evaluationMarkup(snapshot, isChampion = false) {
   return `
     <div class="parameter-showcase"><b>選んだパラメータ</b><div><span><small>探索</small><strong>${stages[settings.speed]}</strong></span><span><small>接近</small><strong>${stages[settings.safety]}</strong></span><span><small>ゴール</small><strong>${stages[settings.goal]}</strong></span><span><small>衝突罰</small><strong>${stages[settings.crash]}</strong></span></div></div>
     <div class="evaluation-score"><b>${result.successes}<small><span>/12</span> GOAL</small></b><strong class="${result.passed ? 'pass' : 'retry'}">${result.passed ? '実機候補' : '要改善'}<small>評価判定</small></strong></div>
-    <div class="evaluation-facts"><span>学習時間 <b>${snapshot.trainingSeconds || 0}秒</b></span><span>走行・障害物 <b>${difficulty}・${obstacleCount}個</b></span><span>本番テストの衝突 <b>${result.crashes}/12</b></span><span>AIが集めた点数 <b>${signed(result.averageReward)}</b></span></div>
+    <div class="evaluation-facts"><span>学習時間 <b>${snapshot.trainingSeconds || 0}秒</b></span><span>走行・学習環境 <b>${difficulty}・${environmentLabel}</b></span><span>本番テストの衝突 <b>${result.crashes}/12</b></span><span>AIが集めた点数 <b>${signed(result.averageReward)}</b></span></div>
     <details class="reward-details"><summary>学習用の点数の内訳を見る</summary><div class="reward-breakdown">${rows}</div></details>
     ${isChampion ? '<em class="champion-badge">実機へ転送するモデル</em>' : ''}`;
 }
@@ -451,7 +454,7 @@ function evaluationAdvice(snapshot, retainedPrevious = false) {
   const result = snapshot.evaluation;
   const rewards = snapshot.rewards;
   const seconds = snapshot.trainingSeconds || 0;
-  const environment = snapshot.environment || '';
+  const environmentDifficulty = snapshot.environmentDifficulty || 'balanced';
   const allStrong = Object.values(rewards).every(value => value === 100);
   const rewardMismatch = result.averageReward >= 900 && result.successes <= 4;
   if (retainedPrevious) {
@@ -462,12 +465,12 @@ function evaluationAdvice(snapshot, retainedPrevious = false) {
   let action;
 
   if (result.passed) {
-    if (environment.includes('障害物 2個')) {
+    if (environmentDifficulty === 'easy') {
       title = '合格です。次は環境を変えて確かめよう';
-      action = '障害物4個で10秒追加し、回避の汎化を試してください。';
-    } else if (environment.includes('障害物 4個')) {
+      action = '「ほどよい」環境を選んで10秒追加し、回避の汎化を試してください。';
+    } else if (environmentDifficulty === 'balanced') {
       title = '複雑な環境でも合格です';
-      action = '障害物6個で10秒追加し、さらに未知の配置へ強くなるか試してください。';
+      action = '「むずかしい」環境を選んで10秒追加し、さらに未知の配置へ強くなるか試してください。';
     } else {
       title = '実機候補になる汎化性能です';
       action = '歴代ベストと報酬を比べ、隣の強さへ1項目だけ変えると効果を確認できます。';
@@ -475,12 +478,12 @@ function evaluationAdvice(snapshot, retainedPrevious = false) {
   } else if (allStrong) {
     title = '全部「強」でも成功は増えません';
     action = '探索を弱、衝突罰を中へ下げて再学習してください。強い報酬同士の競合を減らせます。';
-  } else if (seconds <= 15 && result.successes >= 3 && rewards.speed <= 35 && rewards.safety === 100 && rewards.goal === 100) {
+  } else if (seconds <= 10 && result.successes >= 3 && rewards.speed <= 35 && rewards.safety === 100 && rewards.goal === 100) {
     title = '複雑な環境で伸びる準備ができています';
-    action = '障害物6個で10秒追加し、回避の経験を増やしてください。';
-  } else if (seconds <= 15 && result.successes >= 3) {
+    action = '「むずかしい」環境で10秒追加し、回避の経験を増やしてください。';
+  } else if (seconds <= 10 && result.successes >= 3) {
     title = '成功の芽があります';
-    action = 'まず同じ障害物数で10秒追加してください。7/12へ届くか、時間の効果を確認できます。';
+    action = 'まず同じ環境で10秒追加してください。7/12へ届くか、時間の効果を確認できます。';
   } else if (result.crashes >= 6 && rewards.crash === 100) {
     title = '衝突罰が強すぎる可能性があります';
     action = '衝突罰を中へ戻し、探索も強すぎない設定で再学習してください。';
@@ -493,15 +496,15 @@ function evaluationAdvice(snapshot, retainedPrevious = false) {
   } else if (result.successes <= 2 && rewards.goal < 70) {
     title = '最後まで到達する理由が不足しています';
     action = 'ゴール報酬を中へ上げ、ほかは変えずに再学習してください。';
-  } else if (seconds >= 25 && result.successes <= 3) {
+  } else if (seconds >= 30 && result.successes <= 3) {
     title = '学習時間より報酬を見直す段階です';
     action = '追加学習を続けず、探索・接近・ゴール・衝突罰のうち1項目だけ変えて比較してください。';
   } else if (result.successes >= 4 && result.crashes >= 5) {
     title = '到達できますが、回避が不安定です';
-    action = '障害物4個で10秒追加するか、衝突罰を1段階変えて回避の変化を比べてください。';
+    action = '「ほどよい」環境で10秒追加するか、衝突罰を1段階変えて回避の変化を比べてください。';
   } else {
     title = '1項目だけ変えて原因を確かめよう';
-    action = '接近報酬かゴール報酬を1段階変え、同じ障害物数で再学習してください。';
+    action = '接近報酬かゴール報酬を1段階変え、同じ環境で再学習してください。';
   }
 
   const note = rewardMismatch ? ' AIが集めた点数は高くてもゴールが少ないため、点数の大きさを成功と取り違えないことが大切です。' : '';
@@ -529,6 +532,11 @@ function renderEvaluationComparison(current, previousBest, isNewBest, acceptedIn
   const successDelta = current.evaluation.successes - previousBest.evaluation.successes;
   const crashDelta = current.evaluation.crashes - previousBest.evaluation.crashes;
   const rewardDelta = current.evaluation.averageReward - previousBest.evaluation.averageReward;
+  if (current.environmentId && previousBest.environmentId && current.environmentId !== previousBest.environmentId) {
+    $('#rewardImpact').textContent =
+      `学習環境：${previousBest.environmentId} → ${current.environmentId}。AIの点数 ${signed(rewardDelta)}、本番のゴール ${signed(successDelta)}、衝突 ${signed(crashDelta)}。環境の難しさと配置が学習へ与えた影響です。`;
+    return;
+  }
   $('#rewardImpact').textContent =
     `${rewardNames[key]}：${stages[previousBest.rewards[key]]} → ${stages[current.rewards[key]]}。AIの点数 ${signed(rewardDelta)}、本番のゴール ${signed(successDelta)}、衝突 ${signed(crashDelta)}。`;
 }
@@ -538,7 +546,7 @@ function finishTrainingEnvironment() {
   trainingCandidate = candidateFromTraining();
   trainingHistory.push({
     environment: currentLayout,
-    complexity: S.complexity,
+    environmentId: S.environmentId,
     successRate: realTrainer.successRate(),
     crashes: realTrainer.crashes,
     rewards: { speed: S.speed, safety: S.safety, goal: S.goal, crash: S.crash }
@@ -619,12 +627,18 @@ function realFrame(now) {
   const dt = Math.min(0.05, (now - realLast) / 1000);
   realLast = now;
   if (!S.paused) {
-    S.elapsed = Math.min(realDuration, S.elapsed + dt);
-    trainingStepBudget += dt * activeTrainingStepsPerSecond;
-    const trainingSteps = Math.floor(trainingStepBudget);
+    const activeDelta = Math.min(dt, realDuration - S.elapsed);
+    S.elapsed += activeDelta;
+    trainingStepBudget += activeDelta * activeTrainingStepsPerSecond;
+    const targetSteps = Math.round(realDuration * activeTrainingStepsPerSecond);
+    const remainingSteps = Math.max(0, targetSteps - trainingRunSteps);
+    const trainingSteps = S.elapsed >= realDuration
+      ? remainingSteps
+      : Math.min(remainingSteps, Math.floor(trainingStepBudget));
     if (trainingSteps > 0) {
       realTrainer.step(trainingSteps);
       trainingStepBudget -= trainingSteps;
+      trainingRunSteps += trainingSteps;
     }
   }
   drawTrainingWorld();
@@ -651,7 +665,7 @@ function startRealTraining() {
   S.environmentIndex = 0;
   prepareTrainingEnvironment();
   S.elapsed = 0;
-  realDuration = 15;
+  realDuration = 10;
   $('#trainingState').textContent = '学習中';
   S.paused = false;
   $('#pause').textContent = 'Ⅱ';
@@ -660,6 +674,7 @@ function startRealTraining() {
   $('#continueTrain').classList.add('hidden');
   realTrainer.reset(obs, { speed: S.speed, safety: S.safety, goal: S.goal, crash: S.crash }, S.difficulty);
   trainingStepBudget = 0;
+  trainingRunSteps = 0;
   activeTrainingStepsPerSecond = TRAINING_STEPS_PER_SECOND.initial;
   realLast = performance.now();
   S.raf = requestAnimationFrame(realFrame);
@@ -693,6 +708,7 @@ function continueRealTraining() {
   $('#exam').classList.add('hidden');
   $('#transfer').classList.add('hidden');
   trainingStepBudget = 0;
+  trainingRunSteps = 0;
   activeTrainingStepsPerSecond = TRAINING_STEPS_PER_SECOND.additional;
   realLast = performance.now();
   toast(`個体群を保持して${currentLayout}で追加学習`);
