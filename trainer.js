@@ -60,8 +60,9 @@ class RealTrainer {
     this.startGeneration();
   }
 
-  continueEnvironment(obstacles, difficulty = this.difficulty, validatedChampion = null) {
+  continueEnvironment(obstacles, difficulty = this.difficulty, validatedChampion = null, rewards = this.rewards) {
     this.obstacles = obstacles;
+    this.rewards = { ...rewards };
     this.difficulty = this.difficultyProfiles[difficulty] ? difficulty : 'standard';
     if (validatedChampion?.weights?.length === this.parameterCount) {
       this.protectedBrain = { weights: [...validatedChampion.weights], fitness: 0 };
