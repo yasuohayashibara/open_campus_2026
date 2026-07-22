@@ -11,6 +11,7 @@ function radar(){let c=$("#radar"),x=c.getContext("2d"),cx=240,cy=155,R=103,m=pe
 function go(n){document.body.classList.toggle('training-focus',n===2);if(n===3){let target=$('#trainedTrials'),count=window.trainedPolicy?.evaluations??window.realTrainer?.evaluations??0;if(target)target.textContent=`評価 ${count.toLocaleString()} 回 / READY`;}S.step=Math.max(S.step,n);$$('.panel').forEach(p=>p.classList.toggle('active',+p.dataset.panel===n));$$('.step').forEach(b=>b.classList.toggle('active',+b.dataset.step===n));scrollTo({top:0,behavior:'smooth'});if(n===2)startTraining()}
 $("#baselineStart").onclick=()=>window.startNoRewardObservation();
 $("#baselineContinue").onclick=()=>window.finishNoRewardObservation();
+$("#skipTutorial").onclick=()=>window.skipNoRewardTutorial();
 $("#changeParameters").onclick=()=>{cancelAnimationFrame(S.raf);document.body.classList.remove("evaluation-focus");go(1);document.body.classList.add("parameter-focus");$(".controls").scrollIntoView({behavior:"smooth",block:"center"});toast("パラメータを変えて、結果の違いを試してみましょう")};
 const difficultyNames={easy:'初級',standard:'中級',challenge:'上級'};
 $$('[data-difficulty]').forEach(b=>b.onclick=()=>{S.difficulty=b.dataset.difficulty;$$('[data-difficulty]').forEach(q=>q.classList.toggle('on',q===b));toast(`走行難易度：${difficultyNames[S.difficulty]}`)});

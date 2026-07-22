@@ -289,6 +289,11 @@ try { localStorage.removeItem('rl-lab-experiment-log-v1'); } catch (_) {}
 function recordExperiment(snapshot, accepted) {
   const result = snapshot.evaluation;
   const environments = trainingHistory.map(item => item.environment.match(/障害物 (\d+)個/)?.[1]).filter(Boolean);
+  const previous = experimentLog[experimentLog.length - 1];
+  const lesson = rewardLesson(result, previous ? {
+    successes: previous.successes,
+    averageReward: previous.averageReward
+  } : null);
   experimentLog.push({
     id: Date.now() + experimentLog.length,
     createdAt: Date.now(),
@@ -302,7 +307,8 @@ function recordExperiment(snapshot, accepted) {
     averageReward: Math.round(result.averageReward),
     deploymentScore: Math.round(result.deploymentScore),
     passed: result.passed,
-    accepted
+    accepted,
+    rewardLesson: lesson.type
   });
   experimentLog = experimentLog.slice(-50);
   fetch('/experiment-log', {
@@ -334,7 +340,13 @@ function renderExperimentLog() {
     const route = (item.environments || ['2']).map(value => `${Number(value) || 2}個`).join('→');
     const settings = `探${stages[rewards.speed] || '?'} 接${stages[rewards.safety] || '?'} ゴ${stages[rewards.goal] || '?'} 衝${stages[rewards.crash] || '?'}`;
     const decision = item.accepted === false ? '見送り' : '採用';
-    return `<div class="experiment-log-row ${item.id === best.id ? 'best' : ''} ${item.accepted === false ? 'rejected' : ''}"><b>#${trialNumber}${item.id === best.id ? ' BEST' : ''}<small>${decision}</small></b><span>${settings}</span><span>${route}・${Number(item.trainingSeconds) || 0}秒・${Number(item.generation) || 0}世代</span><strong>${Number(item.successes) || 0}/12</strong><small>衝突 ${Number(item.crashes) || 0}・報酬 ${Number(item.averageReward) || 0}</small></div>`;
+    const lessonLabel = {
+      trap: '⚠ 点数のワナ',
+      aligned: '点数とゴールが一致',
+      'goal-first': 'ゴールを優先',
+      neutral: '要比較'
+    }[item.rewardLesson] || '';
+    return `<div class="experiment-log-row ${item.id === best.id ? 'best' : ''} ${item.accepted === false ? 'rejected' : ''} ${item.rewardLesson === 'trap' ? 'reward-trap' : ''}"><b>#${trialNumber}${item.id === best.id ? ' BEST' : ''}<small>${decision}</small></b><span>${settings}</span><span>${route}・${Number(item.trainingSeconds) || 0}秒・${Number(item.generation) || 0}世代</span><strong>${Number(item.successes) || 0}/12</strong><small>衝突 ${Number(item.crashes) || 0}・AI点 ${Number(item.averageReward) || 0}${lessonLabel ? `・${lessonLabel}` : ''}</small></div>`;
   }).join('');
 }
 
@@ -367,6 +379,44 @@ function signed(value) {
   return `${rounded > 0 ? '+' : ''}${rounded}`;
 }
 
+function rewardLesson(current, reference = null) {
+  if (!reference) {
+    return {
+      type: 'baseline',
+      title: '報酬は「学習の手掛かり」です',
+      body: 'AIが集めた点数は最終成績ではありません。次の試行から、本番テストのゴール数と一緒に比べます。'
+    };
+  }
+  const rewardDelta = Math.round(current.averageReward - reference.averageReward);
+  const goalDelta = current.successes - reference.successes;
+  if (rewardDelta >= 80 && goalDelta <= 0) {
+    return {
+      type: 'trap',
+      title: '報酬のワナを発見',
+      body: `AIが集めた点数は ${signed(rewardDelta)} ですが、本番のゴールは ${signed(goalDelta)}。高得点の取り方を覚えても、目的を達成したとは限りません。`
+    };
+  }
+  if (rewardDelta > 0 && goalDelta > 0) {
+    return {
+      type: 'aligned',
+      title: '報酬と目的が同じ方向です',
+      body: `AIが集めた点数 ${signed(rewardDelta)}、本番のゴール ${signed(goalDelta)}。今回の報酬は、ゴールへ導く手掛かりとして働いています。`
+    };
+  }
+  if (rewardDelta <= 0 && goalDelta > 0) {
+    return {
+      type: 'goal-first',
+      title: '点数より本番結果を優先しよう',
+      body: `AIが集めた点数は ${signed(rewardDelta)} でも、本番のゴールは ${signed(goalDelta)}。点数が下がっても、実際にゴールできる方が良い結果です。`
+    };
+  }
+  return {
+    type: 'neutral',
+    title: '点数だけで良し悪しを決めない',
+    body: `AIが集めた点数 ${signed(rewardDelta)}、本番のゴール ${signed(goalDelta)}。衝突数も見て、次は報酬を1項目だけ変えて確かめましょう。`
+  };
+}
+
 function groupedBreakdown(result) {
   const b = result.breakdown;
   return [
@@ -392,8 +442,8 @@ function evaluationMarkup(snapshot, isChampion = false) {
   return `
     <div class="parameter-showcase"><b>選んだパラメータ</b><div><span><small>探索</small><strong>${stages[settings.speed]}</strong></span><span><small>接近</small><strong>${stages[settings.safety]}</strong></span><span><small>ゴール</small><strong>${stages[settings.goal]}</strong></span><span><small>衝突罰</small><strong>${stages[settings.crash]}</strong></span></div></div>
     <div class="evaluation-score"><b>${result.successes}<small><span>/12</span> GOAL</small></b><strong class="${result.passed ? 'pass' : 'retry'}">${result.passed ? '実機候補' : '要改善'}<small>評価判定</small></strong></div>
-    <div class="evaluation-facts"><span>学習時間 <b>${snapshot.trainingSeconds || 0}秒</b></span><span>走行・障害物 <b>${difficulty}・${obstacleCount}個</b></span><span>衝突 <b>${result.crashes}/12</b></span><span>評価報酬 <b>${signed(result.averageReward)}</b></span></div>
-    <details class="reward-details"><summary>報酬の内訳を見る</summary><div class="reward-breakdown">${rows}</div></details>
+    <div class="evaluation-facts"><span>学習時間 <b>${snapshot.trainingSeconds || 0}秒</b></span><span>走行・障害物 <b>${difficulty}・${obstacleCount}個</b></span><span>本番テストの衝突 <b>${result.crashes}/12</b></span><span>AIが集めた点数 <b>${signed(result.averageReward)}</b></span></div>
+    <details class="reward-details"><summary>学習用の点数の内訳を見る</summary><div class="reward-breakdown">${rows}</div></details>
     ${isChampion ? '<em class="champion-badge">実機へ転送するモデル</em>' : ''}`;
 }
 
@@ -454,7 +504,7 @@ function evaluationAdvice(snapshot, retainedPrevious = false) {
     action = '接近報酬かゴール報酬を1段階変え、同じ障害物数で再学習してください。';
   }
 
-  const note = rewardMismatch ? ' 評価報酬は高くてもゴールが少ないため、報酬値の大きさを成功と取り違えないことが大切です。' : '';
+  const note = rewardMismatch ? ' AIが集めた点数は高くてもゴールが少ないため、点数の大きさを成功と取り違えないことが大切です。' : '';
   return `<b>次の一手：${title}</b><span>${action}${note}</span>`;
 }
 
@@ -466,8 +516,11 @@ function renderEvaluationComparison(current, previousBest, isNewBest, acceptedIn
   const stages = { 0: '無', 35: '弱', 70: '中', 100: '強' };
   $('#bestEvaluation').innerHTML = evaluationMarkup(comparison, !isNewBest && comparison === historicalBest);
   const rewardNames = { speed: '探索幅', safety: '接近報酬', goal: 'ゴール報酬', crash: '衝突罰' };
+  const lesson = rewardLesson(current.evaluation, previousBest?.evaluation || null);
+  $('#rewardLesson').className = `reward-lesson ${lesson.type}`;
+  $('#rewardLesson').innerHTML = `<b>${lesson.title}</b><span>${lesson.body}</span>`;
   if (!previousBest) {
-    $('#rewardImpact').textContent = 'この結果を基準にしました。報酬を変えて再学習すると、成功数の変化を比較できます。';
+    $('#rewardImpact').textContent = 'この結果を基準にしました。報酬を1項目だけ変え、AIの点数と本番のゴールがどう変わるか比べてみましょう。';
     return;
   }
   const key = Object.keys(rewardNames).sort((a, b) =>
@@ -475,8 +528,9 @@ function renderEvaluationComparison(current, previousBest, isNewBest, acceptedIn
   )[0];
   const successDelta = current.evaluation.successes - previousBest.evaluation.successes;
   const crashDelta = current.evaluation.crashes - previousBest.evaluation.crashes;
+  const rewardDelta = current.evaluation.averageReward - previousBest.evaluation.averageReward;
   $('#rewardImpact').textContent =
-    `${rewardNames[key]}：${stages[previousBest.rewards[key]]} → ${stages[current.rewards[key]]}。成功 ${successDelta >= 0 ? '+' : ''}${successDelta}、衝突 ${crashDelta >= 0 ? '+' : ''}${crashDelta}。`;
+    `${rewardNames[key]}：${stages[previousBest.rewards[key]]} → ${stages[current.rewards[key]]}。AIの点数 ${signed(rewardDelta)}、本番のゴール ${signed(successDelta)}、衝突 ${signed(crashDelta)}。`;
 }
 
 function finishTrainingEnvironment() {
@@ -548,8 +602,18 @@ function finishNoRewardObservation() {
   toast('次は、行動を選ぶ手掛かりとなる報酬を設計しましょう');
 }
 
+function skipNoRewardTutorial() {
+  if (!confirm('運営・動作確認用の操作です。\n報酬なしの観察をスキップして、報酬設計へ進みますか？')) return;
+  cancelAnimationFrame(S.raf);
+  baselineObservation = false;
+  S.paused = true;
+  finishNoRewardObservation();
+  toast('チュートリアルをスキップしました');
+}
+
 window.startNoRewardObservation = startNoRewardObservation;
 window.finishNoRewardObservation = finishNoRewardObservation;
+window.skipNoRewardTutorial = skipNoRewardTutorial;
 
 function realFrame(now) {
   const dt = Math.min(0.05, (now - realLast) / 1000);
